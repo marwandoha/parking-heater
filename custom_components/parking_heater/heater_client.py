@@ -6,9 +6,9 @@ import logging
 import struct
 from typing import Any, Callable
 
-from bleak import BleakClient, BleakGATTCharacteristic
+from bleak import BleakClient, BleakGATTCharacteristic, BleakScanner
 from bleak.exc import BleakError
-from bleak_retry_connector import establish_connection
+from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
 
 from homeassistant.core import HomeAssistant
 
@@ -50,15 +50,20 @@ class ParkingHeaterClient:
 
         try:
             _LOGGER.debug("Connecting to %s", self.mac_address)
-            
-            # Create BleakClient directly
-            self._client = BleakClient(
+
+            device = await BleakScanner.find_device_by_address(
+                self.mac_address, timeout=20.0
+            )
+            if not device:
+                raise BleakError(f"Device with address {self.mac_address} not found")
+
+            self._client = await establish_connection(
+                BleakClientWithServiceCache,
+                device,
                 self.mac_address,
                 disconnected_callback=self._on_disconnect,
             )
-            
-            await self._client.connect()
-            
+
             # Subscribe to notifications
             await self._client.start_notify(NOTIFY_CHAR_UUID, self._notification_handler)
             self._is_connected = True

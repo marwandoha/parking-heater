@@ -14,7 +14,7 @@ from .coordinator import ParkingHeaterCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.CLIMATE]
+PLATFORMS: list[Platform] = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -22,16 +22,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Setting up Parking Heater integration")
     
     coordinator = ParkingHeaterCoordinator(hass, entry)
-    
-    try:
-        await coordinator.async_connect()
-    except Exception as err:
-        _LOGGER.error("Unable to connect to parking heater: %s", err)
-        raise ConfigEntryNotReady(f"Unable to connect: {err}") from err
-    
+
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
-    
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
     return True
