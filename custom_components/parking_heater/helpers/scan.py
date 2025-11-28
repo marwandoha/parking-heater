@@ -21,8 +21,13 @@ async def async_ble_scan(timeout: float = 8.0) -> Dict[str, Dict[str, Any]]:
     """
     _LOGGER.debug("Starting BLE scan for %ss", timeout)
     devices = {}
+    discovered = []
 
-    scanner = BleakScanner()
+    def detection_callback(device, advertisement_data):
+        """Handle device discovery."""
+        discovered.append((device, advertisement_data))
+
+    scanner = BleakScanner(detection_callback=detection_callback)
     try:
         await scanner.start()
         await asyncio.sleep(timeout)
@@ -35,18 +40,18 @@ async def async_ble_scan(timeout: float = 8.0) -> Dict[str, Dict[str, Any]]:
             pass
         return {}
 
-    for d in scanner.discovered_devices:
+    for d, ad in discovered:
         # bleak BLEDevice
         try:
             uuids = []
-            if hasattr(d, 'metadata') and d.metadata:
-                uuids = d.metadata.get('uuids', []) or []
+            if hasattr(ad, 'service_uuids'):
+                uuids = ad.service_uuids or []
         except Exception:
             uuids = []
 
         devices[d.address] = {
             "name": d.name or d.address,
-            "rssi": d.rssi,
+            "rssi": ad.rssi,
             "uuids": [u.lower() for u in uuids],
             "address": d.address,
         }
