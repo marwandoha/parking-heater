@@ -12,8 +12,8 @@ from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
 
 # Configuration
-HEATER_MAC = "E0:4E:7A:AD:E8:EE"  # Second heater on hci1
-BLUETOOTH_ADAPTER = "hci1"  # F4:4E:FC:13:83:6D
+HEATER_MAC = "E0:4E:7A:AD:EA:5D"  # First heater - using one already connected
+BLUETOOTH_ADAPTER = "hci0"  # E4:5F:01:9B:D0:AF
 PASSWORD = "1234"
 
 # BLE UUIDs (confirmed from scan)
