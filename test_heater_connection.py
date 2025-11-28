@@ -6,7 +6,7 @@ finding the correct way to send commands.
 
 import asyncio
 import logging
-from bleak import BleakClient, BleakError
+from bleak import BleakClient, BleakError, BleakScanner
 
 # --- Configuration ---
 HEATER_MAC = "E0:4E:7A:AD:EA:5D"
@@ -200,6 +200,17 @@ class HeaterCommander:
         except Exception as e:
             _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
 
+    async def scan_devices(self):
+        """Scan for available Bluetooth devices."""
+        print(f"\nScanning for devices on {self.adapter} (5s)...")
+        try:
+            devices = await BleakScanner.discover(adapter=self.adapter, timeout=5.0)
+            print(f"Found {len(devices)} devices:")
+            for d in devices:
+                print(f"  {d.address} - {d.name} ({d.rssi} dBm)")
+        except Exception as e:
+            _LOGGER.error(f"Scan failed: {e}")
+
     async def menu(self):
         """Display the interactive main menu."""
         while True:
@@ -207,7 +218,7 @@ class HeaterCommander:
             status = f"Status: {'Connected' if self.client and self.client.is_connected else 'Disconnected'}"
             status += f" | {'Authenticated' if self.is_authenticated else 'Not Authenticated'}"
             print(status)
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Exit")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit")
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
 
             if choice == '1':
@@ -231,6 +242,8 @@ class HeaterCommander:
             elif choice == '4':
                 await self.disconnect()
             elif choice == '5':
+                await self.scan_devices()
+            elif choice == '6':
                 if self.client and self.client.is_connected:
                     await self.disconnect()
                 break
