@@ -16,19 +16,17 @@ HEATER_MAC = "E0:4E:7A:AD:EA:5D"  # First heater - using one already connected
 BLUETOOTH_ADAPTER = "hci0"  # E4:5F:01:9B:D0:AF
 PASSWORD = "1234"
 
-# BLE UUIDs (confirmed from scan)
+# BLE UUIDs (from protocol documentation)
 SERVICE_UUIDS = [
-    "0000ffe0-0000-1000-8000-00805f9b34fb",  # Confirmed
+    "0000fff0-0000-1000-8000-00805f9b34fb",
 ]
 
 WRITE_CHAR_UUIDS = [
-    "0000ffe1-0000-1000-8000-00805f9b34fb",  # Confirmed (read/write/notify)
-    "0000ffe3-0000-1000-8000-00805f9b34fb",  # Alternative write
+    "0000fff1-0000-1000-8000-00805f9b34fb",
 ]
 
 NOTIFY_CHAR_UUIDS = [
-    "0000ffe1-0000-1000-8000-00805f9b34fb",  # Confirmed (read/write/notify) 
-    "0000ffe4-0000-1000-8000-00805f9b34fb",  # Alternative notify
+    "0000fff2-0000-1000-8000-00805f9b34fb",
 ]
 
 # Command bytes
