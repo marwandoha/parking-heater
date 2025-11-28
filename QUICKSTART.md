@@ -137,6 +137,7 @@ action:
 ## Next Steps
 
 - 📖 Read the full [README.md](README.md) for detailed features
+- 🔄 See [UPGRADE.md](UPGRADE.md) for update instructions
 - 🔧 Check [PROTOCOL.md](PROTOCOL.md) if commands don't work
 - ❓ See [FAQ.md](FAQ.md) for common questions
 - 🎨 Try more [Lovelace examples](examples/lovelace.yaml)

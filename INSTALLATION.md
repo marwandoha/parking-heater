@@ -231,13 +231,20 @@ If you still have issues:
 1. Go to **HACS** → **Integrations**
 2. Find "Parking Heater BLE"
 3. Click **Update** if available
-4. Restart Home Assistant
+4. **Restart Home Assistant**
+5. No need to remove/re-add devices
 
 ### Manual Update:
 
-1. Download the latest release
-2. Replace the `custom_components/parking_heater` folder
-3. Restart Home Assistant
+1. Download the latest release from GitHub
+2. **Replace** the `custom_components/parking_heater` folder completely
+3. **Restart Home Assistant** (Settings → System → Restart)
+4. Integration will automatically reload with new code
+5. **No need to uninstall** - just restart HA
+
+**Note**: Your device configuration, automations, and history are preserved during updates.
+
+**Detailed upgrade guide**: See [UPGRADE.md](UPGRADE.md) for more information.
 
 ---
 
