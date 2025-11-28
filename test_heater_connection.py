@@ -119,99 +119,100 @@ class HeaterTester:
 
     async def authenticate(self):
         """
-        Cycles through password formats to authenticate.
-        This version PADS commands to a fixed length of 20 bytes.
+        Cycles through password formats, padding lengths, and write UUIDs to find the correct auth method.
+        This process is robust to disconnections.
         """
         if self.is_authenticated:
             _LOGGER.info("[AUTH] Already authenticated.")
             return
 
-        _LOGGER.info("[AUTH] Starting authentication test (with padding)...")
+        _LOGGER.info("[AUTH] Starting exhaustive authentication test...")
 
-        # --- Define password formats to try ---
+        # --- Define base password formats ---
         password_bytes = PASSWORD.encode('ascii')
         core_command = b'\x10' + len(password_bytes).to_bytes(1, 'big') + password_bytes
         checksum_sum = sum(core_command) & 0xFF
         checksum_xor = 0
-        for byte in core_command:
-            checksum_xor ^= byte
+        for byte in core_command: checksum_xor ^= byte
 
-        password_commands = {
+        base_commands = {
             "Plain ASCII": password_bytes,
             "Command (no checksum)": b'\x76' + core_command,
             "Command (SUM checksum)": b'\x76' + core_command + checksum_sum.to_bytes(1, 'big'),
             "Command (XOR checksum)": b'\x76' + core_command + checksum_xor.to_bytes(1, 'big'),
         }
-        
-        # --- Pad commands to address 'Invalid Length' error ---
-        # A fixed length of 20 bytes is a common requirement for BLE characteristics.
-        padded_commands = {}
-        for name, cmd in password_commands.items():
-            if "ASCII" in name:
-                padded_commands[name] = cmd  # Don't pad the raw ASCII test
-            else:
-                padded_commands[f"{name} (Padded)"] = cmd.ljust(20, b'\x00')
-        # --- End of formats ---
 
-        for name, cmd in padded_commands.items():
-            if self.is_authenticated:
-                break
+        # --- Define variables to iterate through ---
+        write_uuids_to_try = [CHAR_UUIDS["ffe3"], CHAR_UUIDS["ffe1"]]
+        padding_lengths_to_try = [None, 8, 16, 20] # None means no padding
 
-            _LOGGER.info(f"--- Trying format: '{name}' ---")
-            _LOGGER.info(f"  Payload: {cmd.hex()}")
-            _LOGGER.info(f"  Using Write: {self.write_uuid} | Notify: {self.notify_uuid}")
-
-            try:
-                # Step 1: Ensure connection. Reconnect if needed.
-                if not self.client or not self.client.is_connected:
-                    _LOGGER.warning("  Device disconnected. Attempting to reconnect...")
-                    await self.connect()
-                    if not self.client or not self.client.is_connected:
-                        _LOGGER.error("  Failed to reconnect. Skipping this format.")
-                        continue
-
-                # Step 2: Send the password command. Use response=True for reliability.
-                _LOGGER.info("  Sending password...")
-                await self.client.write_gatt_char(self.write_uuid, cmd, response=True)
-
-                # Step 3: Attempt to start notifications. This is the real test of auth success.
-                _LOGGER.info("  Attempting to start notifications...")
-                await self.client.start_notify(self.notify_uuid, self.notification_handler)
-                
-                # If we get here, it worked!
-                _LOGGER.info(f"  ✅ SUCCESS! Notifications started. Format '{name}' appears correct.")
-                self.is_authenticated = True
-                
-                # Listen for a moment to confirm connection is stable.
-                _LOGGER.info("  Listening for 5 seconds to confirm stability...")
-                self.notification_received.clear()
-                try:
-                    await asyncio.wait_for(self.notification_received.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    _LOGGER.info("  No notifications received during confirmation, but auth itself succeeded.")
-                
-                await self.client.stop_notify(self.notify_uuid)
-                _LOGGER.info("  Notifications stopped.")
-
-            except BleakError as e:
-                _LOGGER.error(f"  BLEAK ERROR with format '{name}': {e}")
-                if "GATT error" in str(e):
-                    _LOGGER.warning("  This may indicate the heater rejected the command.")
-                if not self.client or not self.client.is_connected:
-                    _LOGGER.warning("  Heater disconnected, as expected for a wrong password.")
-            except Exception as e:
-                _LOGGER.error(f"  UNEXPECTED ERROR with format '{name}': {e}", exc_info=True)
+        for write_uuid in write_uuids_to_try:
+            if self.is_authenticated: break
+            self.write_uuid = write_uuid # Set current write UUID for this loop
             
-            finally:
-                _LOGGER.info(f"--- Finished attempt for '{name}' ---")
-                # Brief pause before next attempt
-                if not self.is_authenticated:
-                    await asyncio.sleep(2)
+            _LOGGER.info(f"\n{'='*20} TESTING WRITE UUID: {self.write_uuid} {'='*20}\n")
+
+            for length in padding_lengths_to_try:
+                if self.is_authenticated: break
+                
+                _LOGGER.info(f"\n--- Testing Padding Length: {length or 'None'} ---\n")
+
+                # Create the final command dictionary for this iteration
+                final_commands = {}
+                for name, cmd in base_commands.items():
+                    if length is None:
+                        final_commands[name] = cmd
+                    # Only pad the structured commands
+                    elif "ASCII" not in name:
+                        final_commands[f"{name} (Padded to {length})"] = cmd.ljust(length, b'\x00')
+
+                for name, cmd in final_commands.items():
+                    if self.is_authenticated: break
+
+                    _LOGGER.info(f"--- Trying format: '{name}' ---")
+                    _LOGGER.info(f"  Payload: {cmd.hex()}")
+                    _LOGGER.info(f"  Using Write: {self.write_uuid} | Notify: {self.notify_uuid}")
+
+                    try:
+                        # Step 1: Reconnect if needed
+                        if not self.client or not self.client.is_connected:
+                            _LOGGER.warning("  Device disconnected. Attempting to reconnect...")
+                            await self.connect()
+                            if not self.client or not self.client.is_connected:
+                                _LOGGER.error("  Failed to reconnect. Skipping combination.")
+                                continue
+
+                        # Step 2: Send password
+                        await self.client.write_gatt_char(self.write_uuid, cmd, response=True)
+
+                        # Step 3: Try to start notifications
+                        await self.client.start_notify(self.notify_uuid, self.notification_handler)
+                        
+                        _LOGGER.info(f"  ✅ SUCCESS! Notifications started. Format '{name}' appears correct.")
+                        self.is_authenticated = True
+                        
+                        _LOGGER.info("  Listening for 5 seconds...")
+                        await asyncio.sleep(5)
+                        await self.client.stop_notify(self.notify_uuid)
+
+                    except BleakError as e:
+                        _LOGGER.error(f"  BLEAK ERROR: {e}")
+                        if "Invalid Length" in str(e):
+                            _LOGGER.warning("  --> This combination of UUID and length is incorrect.")
+                        if not self.client or not self.client.is_connected:
+                            _LOGGER.warning("  Heater disconnected.")
+                    except Exception as e:
+                        _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
+                    
+                    finally:
+                        _LOGGER.info(f"--- Finished attempt for '{name}' ---")
+                        if not self.is_authenticated:
+                            await asyncio.sleep(2)
         
         if self.is_authenticated:
             _LOGGER.info("\n[SUCCESS] Authentication successful!")
         else:
-            _LOGGER.error("\n[FAILURE] Authentication failed. All formats were tried.")
+            _LOGGER.error("\n[FAILURE] Authentication failed. All combinations were tried.")
 
 
     async def _send_and_wait(self, cmd: bytes):
