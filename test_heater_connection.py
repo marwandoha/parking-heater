@@ -26,19 +26,39 @@ COMMAND_WRITE_UUID = CHAR_UUIDS["ffe1"]
 NOTIFY_UUID = CHAR_UUIDS["ffe1"]  # APK uses FFE1 for both write and notify
 
 # --- Command Builder ---
-def build_command(command: int, data: int, passkey: str = "1234") -> bytearray:
-    """Builds the command payload based on reverse-engineered protocol."""
+def build_command(command: int, data: int, mode: int = 0x55, passkey: str = "1234") -> bytearray:
+    """
+    Builds the command payload.
+    Mode 0x55 (85): Standard command with password.
+    Mode 0x88 (136): Handshake/Random confirmation.
+    """
     payload = bytearray(8)
     payload[0] = 0xAA
-    payload[1] = 0x55
-    payload[2] = int(passkey) // 100
-    payload[3] = int(passkey) % 100
+    payload[1] = mode
+
+    if mode == 0x88: # 136
+        # Use random bytes for handshake
+        import random
+        payload[2] = random.randint(0, 255)
+        payload[3] = random.randint(0, 255)
+    else:
+        # Use password for standard commands
+        try:
+            pk = int(passkey)
+            payload[2] = pk // 100
+            payload[3] = pk % 100
+        except ValueError:
+            # Fallback if passkey is not numeric (shouldn't happen with default)
+            payload[2] = 0x0C
+            payload[3] = 0x22
+
     payload[4] = command
-    payload[5] = data & 0xFF
-    payload[6] = (data >> 8) & 0xFF
+    payload[5] = data % 256
+    payload[6] = data // 256
     
-    checksum = sum(payload[2:7])
-    payload[7] = checksum & 0xFF
+    # Checksum: Sum of bytes 2-6
+    checksum = sum(payload[2:7]) & 0xFF
+    payload[7] = checksum
     
     return payload
 
