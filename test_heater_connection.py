@@ -172,15 +172,25 @@ class HeaterCommander:
             _LOGGER.info(f"---------------------\n")
             
         elif len(data) == 13:
-            # Format B (Hypothetical mapping based on 13 bytes)
+            # Format B (13 bytes)
             # aa 55 01 20 b4 7f 00 20 00 00 00 00 ec
-            # Let's just dump it for now until we reverse engineer the fields
+            
+            # Verify Checksum (Sum of bytes 2-11)
+            # Byte 12 is checksum
+            payload = data[2:12]
+            checksum = sum(payload) & 0xFF
+            received_checksum = data[12]
+            
+            checksum_ok = (checksum == received_checksum)
+            checksum_status = "✅ OK" if checksum_ok else f"❌ FAIL (Calc: {checksum:02x})"
+            
             _LOGGER.info(f"\n--- HEATER STATUS (Format B - 13 bytes) ---")
             _LOGGER.info(f"  Raw Data:    {data.hex()}")
-            _LOGGER.info(f"  Byte 2: {data[2]}")
-            _LOGGER.info(f"  Byte 3: {data[3]}")
-            _LOGGER.info(f"  Byte 4: {data[4]}")
-            _LOGGER.info(f"  Byte 5: {data[5]}")
+            _LOGGER.info(f"  Checksum:    {received_checksum:02x} {checksum_status}")
+            _LOGGER.info(f"  Byte 2 (State?): {data[2]}")
+            _LOGGER.info(f"  Byte 3:          {data[3]}")
+            _LOGGER.info(f"  Byte 4:          {data[4]}")
+            _LOGGER.info(f"  Byte 5:          {data[5]}")
             _LOGGER.info(f"---------------------\n")
 
     def notification_handler(self, sender, data):
@@ -465,12 +475,18 @@ class HeaterCommander:
         
         # Use the main write UUID (FFE1) for reading as well, as discovered
         target_uuid = self.write_uuid 
+        last_data = None
         
         try:
             while True:
                 try:
                     data = await self.client.read_gatt_char(target_uuid)
-                    self.parse_notification(data)
+                    
+                    # Deduplicate: Only process if data changed
+                    if data != last_data:
+                        last_data = data
+                        self.parse_notification(data)
+                    
                 except Exception as e:
                     _LOGGER.error(f"Read failed: {e}")
                     # If read fails, maybe we lost connection?
@@ -478,7 +494,7 @@ class HeaterCommander:
                         _LOGGER.error("Connection lost.")
                         break
                 
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(0.5) # Poll faster to catch transitions
         except asyncio.CancelledError:
             _LOGGER.info("Monitor stopped.")
         except KeyboardInterrupt:
@@ -527,8 +543,10 @@ class HeaterCommander:
         _LOGGER.info(f"  Command (Padded): {cmd.hex()}")
         
         try:
-            await self.client.write_gatt_char(write_uuid_ffe3, cmd)
-            _LOGGER.info("  Command sent to FFE3. Waiting 2s...")
+            # Try with response=False (Write Without Response)
+            # This often bypasses length checks or is required for some command chars
+            await self.client.write_gatt_char(write_uuid_ffe3, cmd, response=False)
+            _LOGGER.info("  Command sent to FFE3 (response=False). Waiting 2s...")
             await asyncio.sleep(2.0)
         except Exception as e:
             _LOGGER.warning(f"  Failed to write to FFE3: {e}")
