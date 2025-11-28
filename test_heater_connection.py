@@ -518,6 +518,14 @@ class HeaterCommander:
         # 1. Write to FFE3 FIRST (to see if it triggers status or works as command)
         _LOGGER.info(f"Writing 'Get Status' to {write_uuid_ffe3}...")
         cmd = build_command(1, 0, passkey=PASSWORD)
+        
+        # Pad to 20 bytes (common BLE requirement)
+        if len(cmd) < 20:
+            padding = bytearray(20 - len(cmd))
+            cmd.extend(padding)
+            
+        _LOGGER.info(f"  Command (Padded): {cmd.hex()}")
+        
         try:
             await self.client.write_gatt_char(write_uuid_ffe3, cmd)
             _LOGGER.info("  Command sent to FFE3. Waiting 2s...")
