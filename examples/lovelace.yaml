@@ -1,0 +1,144 @@
+# Example Lovelace dashboard configurations
+
+# Simple Thermostat Card
+type: thermostat
+entity: climate.parking_heater
+
+---
+
+# Detailed Thermostat Card with Fan Control
+type: thermostat
+entity: climate.parking_heater
+features:
+  - type: climate-hvac-modes
+    hvac_modes:
+      - "off"
+      - heat
+  - type: climate-fan-modes
+
+---
+
+# Entities Card with Full Controls
+type: entities
+title: Parking Heater
+entities:
+  - entity: climate.parking_heater
+    type: climate-hvac-modes
+    hvac_modes:
+      - "off"
+      - heat
+  - entity: climate.parking_heater
+    type: attribute
+    attribute: current_temperature
+    name: Current Temperature
+  - entity: climate.parking_heater
+    type: attribute
+    attribute: temperature
+    name: Target Temperature
+  - entity: climate.parking_heater
+    type: attribute
+    attribute: fan_mode
+    name: Fan Speed
+  - entity: climate.parking_heater
+    type: attribute
+    attribute: mac_address
+    name: MAC Address
+
+---
+
+# Button Card for Quick Actions
+type: horizontal-stack
+cards:
+  - type: button
+    entity: climate.parking_heater
+    name: Quick Start
+    icon: mdi:fire
+    tap_action:
+      action: call-service
+      service: script.quick_warm_car
+  - type: button
+    entity: climate.parking_heater
+    name: Eco Mode
+    icon: mdi:leaf
+    tap_action:
+      action: call-service
+      service: script.eco_warm_car
+  - type: button
+    entity: climate.parking_heater
+    name: Turn Off
+    icon: mdi:power
+    tap_action:
+      action: call-service
+      service: climate.turn_off
+      target:
+        entity_id: climate.parking_heater
+
+---
+
+# Conditional Card (Only show when heater is on)
+type: conditional
+conditions:
+  - entity: climate.parking_heater
+    state: heat
+card:
+  type: entities
+  title: Parking Heater Active
+  entities:
+    - entity: climate.parking_heater
+      name: Temperature
+      type: attribute
+      attribute: current_temperature
+    - entity: climate.parking_heater
+      name: Fan Speed
+      type: attribute
+      attribute: fan_mode
+
+---
+
+# Gauge Card for Temperature
+type: gauge
+entity: climate.parking_heater
+attribute: current_temperature
+name: Current Temperature
+unit: °C
+min: 8
+max: 36
+severity:
+  green: 20
+  yellow: 15
+  red: 8
+
+---
+
+# Full Dashboard Section
+type: vertical-stack
+cards:
+  - type: thermostat
+    entity: climate.parking_heater
+  - type: horizontal-stack
+    cards:
+      - type: sensor
+        entity: climate.parking_heater
+        attribute: current_temperature
+        name: Current
+        icon: mdi:thermometer
+      - type: sensor
+        entity: climate.parking_heater
+        attribute: temperature
+        name: Target
+        icon: mdi:thermometer-chevron-up
+      - type: sensor
+        entity: climate.parking_heater
+        attribute: fan_mode
+        name: Fan
+        icon: mdi:fan
+  - type: horizontal-stack
+    cards:
+      - type: button
+        entity: script.quick_warm_car
+        name: Quick Start
+        icon: mdi:fire
+      - type: button
+        entity: script.eco_warm_car
+        name: Eco Mode
+        icon: mdi:leaf

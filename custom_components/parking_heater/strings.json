@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Parking Heater",
+        "description": "Set up your parking heater via Bluetooth. Make sure the heater is powered on and in range.",
+        "data": {
+          "mac_address": "MAC Address",
+          "device_name": "Device Name"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Confirm Parking Heater",
+        "description": "Do you want to add this parking heater to Home Assistant?",
+        "data": {
+          "device_name": "Device Name"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the device. Make sure it is powered on and in range.",
+      "unknown": "An unexpected error occurred.",
+      "no_devices_found": "No parking heaters found. Make sure the device is powered on and in Bluetooth range."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "no_devices_found": "No compatible devices found."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Parking Heater Options",
+        "description": "Configure options for your parking heater."
+      }
+    }
+  }
+}
