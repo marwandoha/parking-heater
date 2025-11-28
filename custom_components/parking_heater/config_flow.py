@@ -8,6 +8,7 @@ import voluptuous as vol
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 from bleak import BleakClient
+from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
 import asyncio
 
 from .helpers.scan import async_ble_scan
@@ -186,14 +187,17 @@ class ParkingHeaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         Returns (ok, reason)."""
         _LOGGER.debug("Attempting connection test to %s", address)
-        client = BleakClient(address)
+
+        device = await BleakScanner.find_device_by_address(address, timeout=10.0)
+        if not device:
+            _LOGGER.warning("Device with address %s not found for connection test", address)
+            return False, "device_not_found"
+
+        client = None
         try:
-            try:
-                await asyncio.wait_for(client.connect(), timeout=20.0)
-            except asyncio.TimeoutError:
-                return False, "timeout"
-            except Exception as e:
-                return False, f"connect_error:{e}"
+            client = await establish_connection(
+                BleakClientWithServiceCache, device, address
+            )
 
             # Ensure services are discovered
             try:
@@ -223,6 +227,9 @@ class ParkingHeaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return False, "characteristic_missing"
 
             return True, "ok"
+        except Exception as e:
+            _LOGGER.warning("Connection test to %s failed: %s", address, e)
+            return False, f"connect_error:{e}"
         finally:
             try:
                 if client and client.is_connected:
