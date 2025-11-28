@@ -119,7 +119,7 @@ class HeaterCommander:
         Byte 13, 14: Case Temp (Low, High) -> Signed
         Byte 15, 16: Cab Temp (Low, High) -> Signed
         """
-        if len(data) < 17:
+        if len(data) < 13:
             _LOGGER.warning(f"Notification data too short: {data.hex()}")
             # Even if too short, check header for potential ASCII message
             if len(data) >= 2 and (data[0] != 0xAA or data[1] != 0x55):
@@ -142,31 +142,46 @@ class HeaterCommander:
             return
 
         # Parsing
-        running_state = data[3]
-        error_code = data[4]
-        running_step = data[5]
-        running_mode = data[8]
+        # We have two known packet formats now:
+        # Format A (17+ bytes): The one from the APK analysis
+        # Format B (13 bytes): The one we just discovered via Read
         
-        # Voltage: (High * 256 + Low) / 10
-        # JS: (256*je[12]+je[11])/10
-        voltage = (data[12] * 256 + data[11]) / 10.0
-        
-        # Temps: Signed 16-bit Little Endian
-        # JS: UnsignToSign(256*je[14]+je[13])
-        case_temp = int.from_bytes(data[13:15], byteorder='little', signed=True)
-        cab_temp = int.from_bytes(data[15:17], byteorder='little', signed=True)
-
-        status_str = "ON" if running_state > 0 else "OFF"
-        
-        _LOGGER.info(f"\n--- HEATER STATUS ---")
-        _LOGGER.info(f"  State:       {status_str} (Code: {running_state})")
-        _LOGGER.info(f"  Error:       {error_code}")
-        _LOGGER.info(f"  Mode:        {running_mode}")
-        _LOGGER.info(f"  Step:        {running_step}")
-        _LOGGER.info(f"  Voltage:     {voltage}V")
-        _LOGGER.info(f"  Case Temp:   {case_temp}°C")
-        _LOGGER.info(f"  Cab Temp:    {cab_temp}°C")
-        _LOGGER.info(f"---------------------\n")
+        if len(data) >= 17:
+            running_state = data[3]
+            error_code = data[4]
+            running_step = data[5]
+            running_mode = data[8]
+            
+            # Voltage: (High * 256 + Low) / 10
+            voltage = (data[12] * 256 + data[11]) / 10.0
+            
+            # Temps: Signed 16-bit Little Endian
+            case_temp = int.from_bytes(data[13:15], byteorder='little', signed=True)
+            cab_temp = int.from_bytes(data[15:17], byteorder='little', signed=True)
+            
+            status_str = "ON" if running_state > 0 else "OFF"
+            
+            _LOGGER.info(f"\n--- HEATER STATUS (Format A) ---")
+            _LOGGER.info(f"  State:       {status_str} (Code: {running_state})")
+            _LOGGER.info(f"  Error:       {error_code}")
+            _LOGGER.info(f"  Mode:        {running_mode}")
+            _LOGGER.info(f"  Step:        {running_step}")
+            _LOGGER.info(f"  Voltage:     {voltage}V")
+            _LOGGER.info(f"  Case Temp:   {case_temp}°C")
+            _LOGGER.info(f"  Cab Temp:    {cab_temp}°C")
+            _LOGGER.info(f"---------------------\n")
+            
+        elif len(data) == 13:
+            # Format B (Hypothetical mapping based on 13 bytes)
+            # aa 55 01 20 b4 7f 00 20 00 00 00 00 ec
+            # Let's just dump it for now until we reverse engineer the fields
+            _LOGGER.info(f"\n--- HEATER STATUS (Format B - 13 bytes) ---")
+            _LOGGER.info(f"  Raw Data:    {data.hex()}")
+            _LOGGER.info(f"  Byte 2: {data[2]}")
+            _LOGGER.info(f"  Byte 3: {data[3]}")
+            _LOGGER.info(f"  Byte 4: {data[4]}")
+            _LOGGER.info(f"  Byte 5: {data[5]}")
+            _LOGGER.info(f"---------------------\n")
 
     def notification_handler(self, sender, data):
         """Handle BLE notifications and put them in a queue."""
@@ -378,7 +393,7 @@ class HeaterCommander:
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
             protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
             print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics | 13. Monitor Status (Read Loop)")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -454,8 +469,41 @@ class HeaterCommander:
                 await self.list_services()
             elif choice == '12':
                 await self.test_characteristics()
+            elif choice == '13':
+                await self.monitor_read_status()
             else:
                 _LOGGER.warning("Invalid choice.")
+
+    async def monitor_read_status(self):
+        """Continuously reads status from FFE1."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected.")
+            return
+            
+        _LOGGER.info("Starting Status Monitor (Read Mode). Press Ctrl+C to stop.")
+        # Use the main write UUID (FFE1) for reading as well, as discovered
+        target_uuid = self.write_uuid 
+        
+        try:
+            while True:
+                try:
+                    data = await self.client.read_gatt_char(target_uuid)
+                    # _LOGGER.info(f"[READ] {data.hex()}")
+                    self.parse_notification(data)
+                except Exception as e:
+                    _LOGGER.error(f"Read failed: {e}")
+                    # If read fails, maybe we lost connection?
+                    if not self.client.is_connected:
+                        _LOGGER.error("Connection lost.")
+                        break
+                
+                await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            _LOGGER.info("Monitor stopped.")
+        except KeyboardInterrupt:
+            _LOGGER.info("Monitor stopped by user.")
+        except Exception as e:
+            _LOGGER.error(f"Monitor error: {e}")
 
     async def list_services(self):
         """Lists all services and characteristics of the connected device."""
