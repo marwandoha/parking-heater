@@ -10,7 +10,7 @@ from bleak import BleakClient, BleakError
 
 # --- Configuration ---
 HEATER_MAC = "E0:4E:7A:AD:EA:5D"
-BLUETOOTH_ADAPTER = "hci0"
+BLUETOOTH_ADAPTER = "hci1"
 PASSWORD = "1234"
 
 # --- UUIDs ---
