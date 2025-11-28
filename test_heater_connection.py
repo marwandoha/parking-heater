@@ -25,8 +25,8 @@ COMMAND_WRITE_UUID = CHAR_UUIDS["ffe1"]
 NOTIFY_UUID = CHAR_UUIDS["ffe1"]
 
 # --- Predefined Commands ---
-CMD_POWER_ON_CMD_TYPE = 0x16
-CMD_POWER_OFF_CMD_TYPE = 0x16
+CMD_POWER_ON = bytes([0x76, 0x16, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x8E])
+CMD_POWER_OFF = bytes([0x76, 0x16, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8D])
 CMD_GET_STATUS_CMD_TYPE = 0x17
 
 
@@ -208,10 +208,10 @@ class HeaterCommander:
                 cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
                 cmd, name = None, None
                 if cmd_choice == '1': 
-                    cmd = self._build_command(CMD_POWER_ON_CMD_TYPE, bytes([0x01]))
+                    cmd = CMD_POWER_ON
                     name = "Power On"
                 elif cmd_choice == '2': 
-                    cmd = self._build_command(CMD_POWER_OFF_CMD_TYPE, bytes([0x00]))
+                    cmd = CMD_POWER_OFF
                     name = "Power Off"
                 elif cmd_choice == '3': 
                     cmd = self._build_command(CMD_GET_STATUS_CMD_TYPE)
