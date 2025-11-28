@@ -42,9 +42,9 @@ class HeaterTester:
         self.client = None
         self.notification_received = asyncio.Event()
         self.last_notification = None
-        # Default characteristics, assuming ffe1 for both based on original code
         self.write_uuid = CHAR_UUIDS["ffe1"]
         self.notify_uuid = CHAR_UUIDS["ffe1"]
+        self.is_authenticated = False
         
     def notification_handler(self, sender, data):
         """Handle BLE notifications."""
@@ -53,7 +53,6 @@ class HeaterTester:
         self.notification_received.set()
     
     async def scan_for_device(self):
-        """Scan for the heater device."""
         _LOGGER.info("🔍 Scanning for devices...")
         try:
             devices = await BleakScanner.discover(adapter=self.adapter, timeout=10.0)
@@ -75,6 +74,7 @@ class HeaterTester:
             self.client = BleakClient(self.mac_address, adapter=self.adapter, timeout=20.0)
             await self.client.connect()
             _LOGGER.info("✅ Connected!")
+            self.is_authenticated = False # Reset auth status on new connection
         except Exception as e:
             _LOGGER.error(f"❌ Connection failed: {e}")
             self.client = None
@@ -86,6 +86,7 @@ class HeaterTester:
         await self.client.disconnect()
         _LOGGER.info("🔌 Disconnected.")
         self.client = None
+        self.is_authenticated = False
 
     async def discover_services(self):
         if not self.client or not self.client.is_connected:
@@ -98,7 +99,6 @@ class HeaterTester:
                 _LOGGER.info(f"  - 📝 Char: {char.uuid} ({char.description}) | Properties: {', '.join(char.properties)}")
 
     async def select_characteristics(self):
-        """Allow user to select which characteristics to use for write/notify."""
         print("\n--- Select Characteristics ---")
         print("Available Write Characteristics: ffe1 (rw), ffe3 (w)")
         write_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Choose write characteristic (ffe1/ffe3): ")
@@ -116,8 +116,38 @@ class HeaterTester:
         else:
             _LOGGER.warning("Invalid choice. Keeping existing value.")
 
+    async def authenticate(self):
+        """Send the password to the device."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.warning("Not connected. Please connect first.")
+            return
+
+        _LOGGER.info("🔐 Attempting to authenticate...")
+        password_cmd = PASSWORD.encode('ascii')
+        
+        _LOGGER.info(f"📡 Using Write: {self.write_uuid}")
+        _LOGGER.info(f"📡 Using Notify: {self.notify_uuid}")
+        _LOGGER.info(f"🔑 Sending password: {password_cmd.hex()}")
+        
+        try:
+            self.notification_received.clear()
+            await self.client.start_notify(self.notify_uuid, self.notification_handler)
+            await self.client.write_gatt_char(self.write_uuid, password_cmd, response=False)
+            
+            try:
+                await asyncio.wait_for(self.notification_received.wait(), timeout=5.0)
+                _LOGGER.info("✅ Got a response to password. Authentication likely successful!")
+                self.is_authenticated = True
+            except asyncio.TimeoutError:
+                _LOGGER.warning("⏱️ No response to password command. Authentication may have failed.")
+                self.is_authenticated = False
+            
+            await self.client.stop_notify(self.notify_uuid)
+        except Exception as e:
+            _LOGGER.error(f"❌ Authentication failed: {e}", exc_info=True)
+            self.is_authenticated = False
+
     async def _send_and_wait(self, cmd: bytes):
-        """Helper to send a command and wait for a notification."""
         if not self.client or not self.client.is_connected:
             _LOGGER.warning("Not connected. Please connect first.")
             return
@@ -150,10 +180,7 @@ class HeaterTester:
         if choice == '1': cmd = CMD_POWER_ON
         elif choice == '2': cmd = CMD_POWER_OFF
         elif choice == '3': cmd = CMD_GET_STATUS
-        elif choice == '4': return
-        else:
-            _LOGGER.warning("Invalid choice.")
-            return
+        else: return
         
         await self._send_and_wait(cmd)
 
@@ -166,7 +193,6 @@ class HeaterTester:
             _LOGGER.error("Invalid hex string.")
 
 async def main():
-    """Main interactive test function."""
     _LOGGER.info("="*60)
     _LOGGER.info("🚗 Parking Heater BLE Interactive Tester")
     _LOGGER.info(f"Heater MAC: {HEATER_MAC} | Adapter: {BLUETOOTH_ADAPTER}")
@@ -176,21 +202,23 @@ async def main():
     
     while True:
         print("\n--- Main Menu ---")
-        print("1. Scan | 2. Connect | 3. Discover Services | 4. Select Characteristics | 5. Send Command | 6. Disconnect | 7. Exit")
+        print(f"Status: {'Connected' if tester.client and tester.client.is_connected else 'Disconnected'} | {'Authenticated' if tester.is_authenticated else 'Not Authenticated'}")
+        print("1. Scan | 2. Connect | 3. Discover Services | 4. Select Characteristics | 5. Authenticate | 6. Send Command | 7. Disconnect | 8. Exit")
         choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
 
         if choice == '1': await tester.scan_for_device()
         elif choice == '2': await tester.connect()
         elif choice == '3': await tester.discover_services()
         elif choice == '4': await tester.select_characteristics()
-        elif choice == '5':
+        elif choice == '5': await tester.authenticate()
+        elif choice == '6':
             print("\n--- Send Command Menu ---")
             print("1. Predefined (On/Off/Status) | 2. Custom Hex | 3. Back")
             cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             if cmd_choice == '1': await tester.send_predefined_command()
             elif cmd_choice == '2': await tester.send_custom_command()
-        elif choice == '6': await tester.disconnect()
-        elif choice == '7':
+        elif choice == '7': await tester.disconnect()
+        elif choice == '8':
             if tester.client and tester.client.is_connected:
                 await tester.disconnect()
             break
