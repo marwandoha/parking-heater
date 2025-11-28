@@ -63,9 +63,8 @@ def build_command(command: int, data: int, mode: int = 0x55, passkey: str = "123
     return payload
 
 # --- Predefined Commands ---
-CMD_POWER_ON = build_command(3, 1, passkey=PASSWORD)
-CMD_POWER_OFF = build_command(3, 0, passkey=PASSWORD)
-CMD_GET_STATUS = build_command(1, 0, passkey=PASSWORD)
+# Commands are now built dynamically in the menu to ensure they use the correct PASSWORD
+
 
 
 # --- Setup Logging ---
@@ -323,9 +322,17 @@ class HeaterCommander:
                 print("1. Turn On | 2. Turn Off | 3. Get Status")
                 cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
                 cmd, name = None, None
-                if cmd_choice == '1': cmd, name = CMD_POWER_ON, "Power On"
-                elif cmd_choice == '2': cmd, name = CMD_POWER_OFF, "Power Off"
-                elif cmd_choice == '3': cmd, name = CMD_GET_STATUS, "Get Status"
+                
+                # Build commands dynamically to use the authenticated PASSWORD
+                if cmd_choice == '1': 
+                    cmd = build_command(3, 1, passkey=PASSWORD)
+                    name = "Power On"
+                elif cmd_choice == '2': 
+                    cmd = build_command(3, 0, passkey=PASSWORD)
+                    name = "Power Off"
+                elif cmd_choice == '3': 
+                    cmd = build_command(1, 0, passkey=PASSWORD)
+                    name = "Get Status"
                 
                 if cmd:
                     if name == "Power On":
