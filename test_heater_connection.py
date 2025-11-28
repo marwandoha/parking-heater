@@ -1,300 +1,191 @@
 """
-Standalone test script for debugging parking heater BLE connection.
-Run this directly with Python to test connection without Home Assistant.
-
-Usage:
-    python test_heater_connection.py
+Standalone test script for parking heater BLE connection.
+This version uses the discovered authentication method and now focuses on
+finding the correct way to send commands.
 """
 
 import asyncio
 import logging
-from bleak import BleakClient, BleakScanner
-from bleak.exc import BleakError
+from bleak import BleakClient, BleakError
 
-# Configuration
+# --- Configuration ---
 HEATER_MAC = "E0:4E:7A:AD:EA:5D"
 BLUETOOTH_ADAPTER = "hci0"
 PASSWORD = "1234"
 
-# --- UUIDs discovered from user's device scan ---
+# --- UUIDs ---
+# Service UUID
 SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
+# All known characteristics
 CHAR_UUIDS = {
-    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # supports read, write, notify
-    "ffe3": "0000ffe3-0000-1000-8000-00805f9b34fb",  # supports write
-    "ffe4": "0000ffe4-0000-1000-8000-00805f9b34fb",  # supports notify
+    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # Auth Write
+    "ffe3": "0000ffe3-0000-1000-8000-00805f9b34fb",  # Possible Command Write?
+    "ffe4": "0000ffe4-0000-1000-8000-00805f9b34fb",  # Notification
 }
-# --- End of UUIDs ---
+# Discovered correct UUIDs for auth
+AUTH_WRITE_UUID = CHAR_UUIDS["ffe1"]
+NOTIFY_UUID = CHAR_UUIDS["ffe4"]
 
-# Command bytes
-CMD_POWER_ON = bytes([0x76, 0x16, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x8E])
-CMD_POWER_OFF = bytes([0x76, 0x16, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8D])
-CMD_GET_STATUS = bytes([0x76, 0x17, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8E])
+# --- Predefined Commands ---
+CMD_POWER_ON = bytes.fromhex("76160101000000008e")
+CMD_POWER_OFF = bytes.fromhex("76160100000000008d")
+CMD_GET_STATUS = bytes.fromhex("76170100000000008e")
 
-# Setup logging
+# --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 _LOGGER = logging.getLogger(__name__)
 
 
-class HeaterTester:
+class HeaterCommander:
     def __init__(self, mac_address: str, adapter: str):
         self.mac_address = mac_address
         self.adapter = adapter
         self.client = None
-        self.notification_received = asyncio.Event()
-        self.last_notification = None
-        # Set default UUIDs based on discovery. ffe3 is for writing, ffe4 is for notifying.
-        self.write_uuid = CHAR_UUIDS["ffe3"]
-        self.notify_uuid = CHAR_UUIDS["ffe4"]
         self.is_authenticated = False
-        
+        self.notification_queue = asyncio.Queue()
+
     def notification_handler(self, sender, data):
-        """Handle BLE notifications."""
+        """Handle BLE notifications and put them in a queue."""
         _LOGGER.info(f"[RECV] Notification from {sender}: {data.hex()}")
-        self.last_notification = data
-        self.notification_received.set()
-    
-    async def scan_for_device(self):
-        _LOGGER.info("[SCAN] Scanning for devices...")
-        try:
-            devices = await BleakScanner.discover(adapter=self.adapter, timeout=10.0)
-            _LOGGER.info(f"[FOUND] {len(devices)} devices:")
-            found = any(d.address.upper() == self.mac_address.upper() for d in devices)
-            for device in devices:
-                _LOGGER.info(f"  - {device.name or 'Unknown'}: {device.address} {'[OK]' if device.address.upper() == self.mac_address.upper() else ''}")
-            if not found:
-                _LOGGER.warning(f"[WARN] Heater with MAC {self.mac_address} not found.")
-        except BleakError as e:
-            _LOGGER.error(f"[ERROR] BleakError during scan: {e}")
+        self.notification_queue.put_nowait(data)
 
     async def connect(self):
+        """Connect to the heater."""
         if self.client and self.client.is_connected:
             _LOGGER.warning("Already connected.")
             return
-        _LOGGER.info(f"[CONNECT] Connecting to {self.mac_address}...")
+        _LOGGER.info(f"Connecting to {self.mac_address}...")
         try:
             self.client = BleakClient(self.mac_address, adapter=self.adapter, timeout=20.0)
             await self.client.connect()
-            _LOGGER.info("[OK] Connected!")
+            _LOGGER.info("Connected successfully!")
             self.is_authenticated = False
         except Exception as e:
-            _LOGGER.error(f"[ERROR] Connection failed: {e}")
+            _LOGGER.error(f"Connection failed: {e}")
             self.client = None
 
     async def disconnect(self):
+        """Disconnect from the heater."""
         if not self.client or not self.client.is_connected:
             _LOGGER.warning("Not connected.")
             return
         await self.client.disconnect()
-        _LOGGER.info("[DISCONNECT] Disconnected.")
+        _LOGGER.info("Disconnected.")
         self.client = None
         self.is_authenticated = False
 
-    async def discover_services(self):
-        if not self.client or not self.client.is_connected:
-            _LOGGER.warning("Not connected. Please connect first.")
-            return
-        _LOGGER.info("[DISCOVER] Discovering services and characteristics...")
-        for service in self.client.services:
-            _LOGGER.info(f"\n  Service: {service.uuid} ({service.description})")
-            for char in service.characteristics:
-                _LOGGER.info(f"    Char: {char.uuid} ({char.description}) | Properties: {', '.join(char.properties)}")
-
-    async def select_characteristics(self):
-        print("\n--- Select Characteristics ---")
-        print("Available Write Characteristics: ffe1 (rw), ffe3 (w)")
-        write_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Choose write characteristic (ffe1/ffe3): ")
-        if write_choice in CHAR_UUIDS:
-            self.write_uuid = CHAR_UUIDS[write_choice]
-            _LOGGER.info(f"Write characteristic set to {self.write_uuid}")
-        else:
-            _LOGGER.warning("Invalid choice. Keeping existing value.")
-
-        print("\nAvailable Notify Characteristics: ffe1 (rn), ffe4 (n)")
-        notify_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Choose notify characteristic (ffe1/ffe4): ")
-        if notify_choice in CHAR_UUIDS:
-            self.notify_uuid = CHAR_UUIDS[notify_choice]
-            _LOGGER.info(f"Notify characteristic set to {self.notify_uuid}")
-        else:
-            _LOGGER.warning("Invalid choice. Keeping existing value.")
-
     async def authenticate(self):
-        """
-        Cycles through password formats, padding lengths, and write UUIDs to find the correct auth method.
-        This process is robust to disconnections.
-        """
+        """Authenticate using the discovered correct method."""
         if self.is_authenticated:
-            _LOGGER.info("[AUTH] Already authenticated.")
+            _LOGGER.info("Already authenticated.")
+            return
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected. Please connect first.")
             return
 
-        _LOGGER.info("[AUTH] Starting exhaustive authentication test...")
+        _LOGGER.info("Attempting authentication with the known correct method...")
+        password_cmd = PASSWORD.encode('ascii')
 
-        # --- Define base password formats ---
-        password_bytes = PASSWORD.encode('ascii')
-        core_command = b'\x10' + len(password_bytes).to_bytes(1, 'big') + password_bytes
-        checksum_sum = sum(core_command) & 0xFF
-        checksum_xor = 0
-        for byte in core_command: checksum_xor ^= byte
+        try:
+            _LOGGER.info(f"Writing '{PASSWORD}' to {AUTH_WRITE_UUID}")
+            await self.client.write_gatt_char(AUTH_WRITE_UUID, password_cmd, response=True)
 
-        base_commands = {
-            "Plain ASCII": password_bytes,
-            "Command (no checksum)": b'\x76' + core_command,
-            "Command (SUM checksum)": b'\x76' + core_command + checksum_sum.to_bytes(1, 'big'),
-            "Command (XOR checksum)": b'\x76' + core_command + checksum_xor.to_bytes(1, 'big'),
-        }
+            _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
+            await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
+            
+            self.is_authenticated = True
+            _LOGGER.info("✅ Authentication Successful! Notification channel is open.")
 
-        # --- Define variables to iterate through ---
-        write_uuids_to_try = [CHAR_UUIDS["ffe3"], CHAR_UUIDS["ffe1"]]
-        padding_lengths_to_try = [None, 8, 16, 20] # None means no padding
+        except Exception as e:
+            _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
+            self.is_authenticated = False
+
+    async def send_command_exploratory(self, base_cmd: bytes, cmd_name: str):
+        """
+        Send a command by exploring different write UUIDs and padding lengths.
+        """
+        if not self.is_authenticated:
+            _LOGGER.warning("Not authenticated. Please authenticate first.")
+            return
+
+        _LOGGER.info(f"\n>>> Starting exploratory send for command: {cmd_name} <<<
+")
+
+        write_uuids_to_try = [CHAR_UUIDS["ffe1"], CHAR_UUIDS["ffe3"]]
+        padding_lengths_to_try = [None, 8, 16, 20] # None = no padding
 
         for write_uuid in write_uuids_to_try:
-            if self.is_authenticated: break
-            self.write_uuid = write_uuid # Set current write UUID for this loop
-            
-            _LOGGER.info(f"\n{'='*20} TESTING WRITE UUID: {self.write_uuid} {'='*20}\n")
-
             for length in padding_lengths_to_try:
-                if self.is_authenticated: break
-                
-                _LOGGER.info(f"\n--- Testing Padding Length: {length or 'None'} ---\n")
+                cmd = base_cmd if length is None else base_cmd.ljust(length, b'\x00')
 
-                # Create the final command dictionary for this iteration
-                final_commands = {}
-                for name, cmd in base_commands.items():
-                    if length is None:
-                        final_commands[name] = cmd
-                    # Only pad the structured commands
-                    elif "ASCII" not in name:
-                        final_commands[f"{name} (Padded to {length})"] = cmd.ljust(length, b'\x00')
+                _LOGGER.info(f"--- Testing Write UUID: {write_uuid}, Length: {length or 'raw'} ---")
+                _LOGGER.info(f"  Payload: {cmd.hex()}")
 
-                for name, cmd in final_commands.items():
-                    if self.is_authenticated: break
+                try:
+                    # Clear notification queue before sending
+                    while not self.notification_queue.empty():
+                        self.notification_queue.get_nowait()
 
-                    _LOGGER.info(f"--- Trying format: '{name}' ---")
-                    _LOGGER.info(f"  Payload: {cmd.hex()}")
-                    _LOGGER.info(f"  Using Write: {self.write_uuid} | Notify: {self.notify_uuid}")
-
-                    try:
-                        # Step 1: Reconnect if needed
-                        if not self.client or not self.client.is_connected:
-                            _LOGGER.warning("  Device disconnected. Attempting to reconnect...")
-                            await self.connect()
-                            if not self.client or not self.client.is_connected:
-                                _LOGGER.error("  Failed to reconnect. Skipping combination.")
-                                continue
-
-                        # Step 2: Send password
-                        await self.client.write_gatt_char(self.write_uuid, cmd, response=True)
-
-                        # Step 3: Try to start notifications
-                        await self.client.start_notify(self.notify_uuid, self.notification_handler)
-                        
-                        _LOGGER.info(f"  ✅ SUCCESS! Notifications started. Format '{name}' appears correct.")
-                        self.is_authenticated = True
-                        
-                        _LOGGER.info("  Listening for 5 seconds...")
-                        await asyncio.sleep(5)
-                        await self.client.stop_notify(self.notify_uuid)
-
-                    except BleakError as e:
-                        _LOGGER.error(f"  BLEAK ERROR: {e}")
-                        if "Invalid Length" in str(e):
-                            _LOGGER.warning("  --> This combination of UUID and length is incorrect.")
-                        if not self.client or not self.client.is_connected:
-                            _LOGGER.warning("  Heater disconnected.")
-                    except Exception as e:
-                        _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
+                    await self.client.write_gatt_char(write_uuid, cmd, response=False)
                     
-                    finally:
-                        _LOGGER.info(f"--- Finished attempt for '{name}' ---")
-                        if not self.is_authenticated:
-                            await asyncio.sleep(2)
-        
-        if self.is_authenticated:
-            _LOGGER.info("\n[SUCCESS] Authentication successful!")
-        else:
-            _LOGGER.error("\n[FAILURE] Authentication failed. All combinations were tried.")
+                    _LOGGER.info("  Command sent. Waiting 5s for a notification...")
+                    response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
+                    
+                    _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
+                    _LOGGER.info(f"  Correct combination for '{cmd_name}' is likely: Write UUID={write_uuid}, Length={length}")
+                    return # Stop on first success
 
+                except asyncio.TimeoutError:
+                    _LOGGER.warning("  No notification received.")
+                except BleakError as e:
+                    _LOGGER.error(f"  BLEAK ERROR: {e}")
+                    if "Invalid Length" in str(e):
+                        _LOGGER.warning("  --> Rejected by bluetoothd. Incorrect length for this characteristic.")
+                except Exception as e:
+                    _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
 
-    async def _send_and_wait(self, cmd: bytes):
-        if not self.client or not self.client.is_connected:
-            _LOGGER.warning("Not connected. Please connect first.")
-            return
-        
-        if not self.is_authenticated:
-            _LOGGER.warning("[WARN] Not authenticated. Commands may fail. Please try authenticating first.")
-            
-        _LOGGER.info(f"  Using Write: {self.write_uuid}")
-        _LOGGER.info(f"  Using Notify: {self.notify_uuid}")
-        _LOGGER.info(f"[SEND] Sending: {cmd.hex()}")
-        
-        try:
-            self.notification_received.clear()
-            await self.client.start_notify(self.notify_uuid, self.notification_handler)
-            await self.client.write_gatt_char(self.write_uuid, cmd, response=False)
-            
-            try:
-                await asyncio.wait_for(self.notification_received.wait(), timeout=5.0)
-                _LOGGER.info("[OK] Response received!")
-            except asyncio.TimeoutError:
-                _LOGGER.warning("[TIMEOUT] No response received.")
-            
-            await self.client.stop_notify(self.notify_uuid)
-        except Exception as e:
-            _LOGGER.error(f"[ERROR] Send failed: {e}", exc_info=True)
+    async def menu(self):
+        """Display the interactive main menu."""
+        while True:
+            print("\n--- Main Menu ---")
+            status = f"Status: {'Connected' if self.client and self.client.is_connected else 'Disconnected'}"
+            status += f" | {'Authenticated' if self.is_authenticated else 'Not Authenticated'}"
+            print(status)
+            print("1. Connect | 2. Authenticate | 3. Send Command (Exploratory) | 4. Disconnect | 5. Exit")
+            choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
 
-    async def send_predefined_command(self):
-        print("\n--- Predefined Commands ---")
-        print("1. Turn On | 2. Turn Off | 3. Get Status | 4. Back")
-        choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
-        
-        cmd = None
-        if choice == '1': cmd = CMD_POWER_ON
-        elif choice == '2': cmd = CMD_POWER_OFF
-        elif choice == '3': cmd = CMD_GET_STATUS
-        else: return
-        
-        await self._send_and_wait(cmd)
+            if choice == '1':
+                await self.connect()
+            elif choice == '2':
+                await self.authenticate()
+            elif choice == '3':
+                print("\n--- Select Command to Send ---")
+                print("1. Turn On | 2. Turn Off | 3. Get Status")
+                cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
+                cmd, name = None, None
+                if cmd_choice == '1': cmd, name = CMD_POWER_ON, "Power On"
+                elif cmd_choice == '2': cmd, name = CMD_POWER_OFF, "Power Off"
+                elif cmd_choice == '3': cmd, name = CMD_GET_STATUS, "Get Status"
+                
+                if cmd:
+                    await self.send_command_exploratory(cmd, name)
+            elif choice == '4':
+                await self.disconnect()
+            elif choice == '5':
+                if self.client and self.client.is_connected:
+                    await self.disconnect()
+                break
+            else:
+                _LOGGER.warning("Invalid choice.")
 
-    async def send_custom_command(self):
-        hex_cmd = await asyncio.get_event_loop().run_in_executor(None, input, "Enter custom hex command: ")
-        try:
-            cmd = bytes.fromhex(hex_cmd)
-            await self._send_and_wait(cmd)
-        except ValueError:
-            _LOGGER.error("Invalid hex string.")
 
 async def main():
-    _LOGGER.info("="*60)
-    _LOGGER.info("Parking Heater BLE Interactive Tester")
-    _LOGGER.info(f"Heater MAC: {HEATER_MAC} | Adapter: {BLUETOOTH_ADAPTER}")
-    _LOGGER.info("="*60)
+    _LOGGER.info("="*50)
+    _LOGGER.info("Parking Heater BLE Commander")
+    _LOGGER.info("="*50)
     
-    tester = HeaterTester(HEATER_MAC, BLUETOOTH_ADAPTER)
-    
-    while True:
-        print("\n--- Main Menu ---")
-        print(f"Status: {'Connected' if tester.client and tester.client.is_connected else 'Disconnected'} | {'Authenticated' if tester.is_authenticated else 'Not Authenticated'}")
-        print("1. Scan | 2. Connect | 3. Discover Services | 4. Select Characteristics | 5. Authenticate | 6. Send Command | 7. Disconnect | 8. Exit")
-        choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
-
-        if choice == '1': await tester.scan_for_device()
-        elif choice == '2': await tester.connect()
-        elif choice == '3': await tester.discover_services()
-        elif choice == '4': await tester.select_characteristics()
-        elif choice == '5': await tester.authenticate()
-        elif choice == '6':
-            print("\n--- Send Command Menu ---")
-            print("1. Predefined (On/Off/Status) | 2. Custom Hex | 3. Back")
-            cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
-            if cmd_choice == '1': await tester.send_predefined_command()
-            elif cmd_choice == '2': await tester.send_custom_command()
-        elif choice == '7': await tester.disconnect()
-        elif choice == '8':
-            if tester.client and tester.client.is_connected:
-                await tester.disconnect()
-            break
-        else:
-            _LOGGER.warning("Invalid choice, please try again.")
+    commander = HeaterCommander(HEATER_MAC, BLUETOOTH_ADAPTER)
+    await commander.menu()
 
 if __name__ == "__main__":
     try:
