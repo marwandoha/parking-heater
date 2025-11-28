@@ -370,7 +370,7 @@ class HeaterCommander:
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
             protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
             print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -442,8 +442,24 @@ class HeaterCommander:
                 await self.monitor_status()
             elif choice == '10':
                 self.toggle_protocol()
+            elif choice == '11':
+                await self.list_services()
             else:
                 _LOGGER.warning("Invalid choice.")
+
+    async def list_services(self):
+        """Lists all services and characteristics of the connected device."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected.")
+            return
+            
+        _LOGGER.info("Listing Services and Characteristics...")
+        for service in self.client.services:
+            _LOGGER.info(f"[Service] {service.uuid} ({service.description})")
+            for char in service.characteristics:
+                props = ",".join(char.properties)
+                _LOGGER.info(f"  [Char] {char.uuid} ({props})")
+
 
 
 async def main():
