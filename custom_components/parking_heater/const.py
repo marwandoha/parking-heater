@@ -12,10 +12,10 @@ DEFAULT_NAME: Final = "Parking Heater"
 DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
 
 # BLE Service and Characteristic UUIDs
-# Based on official protocol documentation
-SERVICE_UUID: Final = "0000fff0-0000-1000-8000-00805f9b34fb"
-WRITE_CHAR_UUID: Final = "0000fff1-0000-1000-8000-00805f9b34fb"
-NOTIFY_CHAR_UUID: Final = "0000fff2-0000-1000-8000-00805f9b34fb"
+# Based on actual BYD parking heaters (confirmed from scan)
+SERVICE_UUID: Final = "0000ffe0-0000-1000-8000-00805f9b34fb"
+WRITE_CHAR_UUID: Final = "0000ffe1-0000-1000-8000-00805f9b34fb"
+NOTIFY_CHAR_UUID: Final = "0000ffe1-0000-1000-8000-00805f9b34fb"  # Same as write
 
 # Command bytes (these are typical for air heater BLE devices)
 # Note: These may need to be reverse-engineered from the actual app
