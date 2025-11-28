@@ -31,6 +31,12 @@ NOTIFY_CHAR_UUIDS = [
     "0000ffe4-0000-1000-8000-00805f9b34fb",  # Alternative notify
 ]
 
+# Command bytes
+CMD_POWER_ON = bytes([0x76, 0x16, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x8E])
+CMD_POWER_OFF = bytes([0x76, 0x16, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8D])
+CMD_GET_STATUS = bytes([0x76, 0x17, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8E])
+
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -156,7 +162,61 @@ class HeaterTester:
         except Exception as e:
             _LOGGER.error(f"\U0001f6a7 Password auth failed: {e}")
 
-    async def send_command(self):
+    async def _send_and_wait(self, cmd: bytes, write_uuid: str, notify_uuid: str):
+        """Helper to send a command and wait for a notification."""
+        _LOGGER.info(f"\U0001f4e1 Sending: {cmd.hex()}")
+        try:
+            await self.client.start_notify(notify_uuid, self.notification_handler)
+            self.notification_received.clear()
+            
+            await self.client.write_gatt_char(write_uuid, cmd, response=False)
+            
+            try:
+                await asyncio.wait_for(self.notification_received.wait(), timeout=5.0)
+                _LOGGER.info("\U0001f603 Response received!")
+            except asyncio.TimeoutError:
+                _LOGGER.warning("\U0001f550 No response received.")
+            
+            await self.client.stop_notify(notify_uuid)
+        except Exception as e:
+            _LOGGER.error(f"\U0001f6a7 Send failed: {e}")
+
+    async def send_predefined_command(self):
+        if not self.client or not self.client.is_connected:
+            _LOGGER.warning("Not connected. Please connect first.")
+            return
+
+        write_uuid = next((u for u in WRITE_CHAR_UUIDS if u in [c.uuid for s in self.client.services for c in s.characteristics]), None)
+        notify_uuid = next((u for u in NOTIFY_CHAR_UUIDS if u in [c.uuid for s in self.client.services for c in s.characteristics]), None)
+
+        if not write_uuid or not notify_uuid:
+            _LOGGER.error("\U0001f6a7 Could not find required write/notify characteristics!")
+            return
+
+        print("\n--- Predefined Commands ---")
+        print("1. Turn On")
+        print("2. Turn Off")
+        print("3. Get Status")
+        print("4. Back to main menu")
+        
+        choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
+
+        cmd = None
+        if choice == '1':
+            cmd = CMD_POWER_ON
+        elif choice == '2':
+            cmd = CMD_POWER_OFF
+        elif choice == '3':
+            cmd = CMD_GET_STATUS
+        elif choice == '4':
+            return
+        else:
+            _LOGGER.warning("Invalid choice.")
+            return
+        
+        await self._send_and_wait(cmd, write_uuid, notify_uuid)
+
+    async def send_custom_command(self):
         if not self.client or not self.client.is_connected:
             _LOGGER.warning("Not connected. Please connect first.")
             return
@@ -176,22 +236,7 @@ class HeaterTester:
             _LOGGER.error("Invalid hex string.")
             return
 
-        _LOGGER.info(f"\n\U0001f4e1 Sending: {cmd.hex()}")
-        try:
-            await self.client.start_notify(notify_uuid, self.notification_handler)
-            self.notification_received.clear()
-            
-            await self.client.write_gatt_char(write_uuid, cmd, response=False)
-            
-            try:
-                await asyncio.wait_for(self.notification_received.wait(), timeout=5.0)
-                _LOGGER.info(f"\U0001f603 Response received!")
-            except asyncio.TimeoutError:
-                _LOGGER.warning(f"\U0001f550 No response received.")
-            
-            await self.client.stop_notify(notify_uuid)
-        except Exception as e:
-            _LOGGER.error(f"\U0001f6a7 Send failed: {e}")
+        await self._send_and_wait(cmd, write_uuid, notify_uuid)
 
 
 async def main():
@@ -204,12 +249,12 @@ async def main():
     tester = HeaterTester(HEATER_MAC, BLUETOOTH_ADAPTER)
     
     while True:
-        print("\n--- Menu ---")
+        print("\n--- Main Menu ---")
         print("1. Scan for heater")
         print("2. Connect to heater")
         print("3. Discover services")
         print("4. Test password authentication")
-        print("5. Send custom command")
+        print("5. Send command")
         print("6. Disconnect")
         print("7. Exit")
         
@@ -224,11 +269,21 @@ async def main():
         elif choice == '4':
             await tester.test_password_auth()
         elif choice == '5':
-            await tester.send_command()
+            print("\n--- Send Command Menu ---")
+            print("1. Predefined commands (On/Off/Status)")
+            print("2. Custom hex command")
+            print("3. Back to main menu")
+            cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
+            if cmd_choice == '1':
+                await tester.send_predefined_command()
+            elif cmd_choice == '2':
+                await tester.send_custom_command()
         elif choice == '6':
             await tester.disconnect()
         elif choice == '7':
-            await tester.disconnect()
+
+            if tester.client and tester.client.is_connected:
+                await tester.disconnect()
             break
         else:
             _LOGGER.warning("Invalid choice, please try again.")
