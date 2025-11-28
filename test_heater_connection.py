@@ -61,9 +61,58 @@ class HeaterCommander:
         self.is_authenticated = False
         self.notification_queue = asyncio.Queue()
 
+    def parse_notification(self, data: bytearray):
+        """
+        Parses the notification data from the heater.
+        Based on APK logic:
+        0xAA 0x55 ...
+        Byte 3: Running State
+        Byte 4: Error Code
+        Byte 5: Running Step
+        Byte 8: Running Mode
+        Byte 11, 12: Voltage (Low, High) -> (High*256 + Low) / 10
+        Byte 13, 14: Case Temp (Low, High) -> Signed
+        Byte 15, 16: Cab Temp (Low, High) -> Signed
+        """
+        if len(data) < 17:
+            _LOGGER.warning(f"Notification data too short: {data.hex()}")
+            return
+
+        if data[0] != 0xAA or data[1] != 0x55:
+            _LOGGER.warning(f"Unknown header: {data.hex()}")
+            return
+
+        # Parsing
+        running_state = data[3]
+        error_code = data[4]
+        running_step = data[5]
+        running_mode = data[8]
+        
+        # Voltage: (High * 256 + Low) / 10
+        # JS: (256*je[12]+je[11])/10
+        voltage = (data[12] * 256 + data[11]) / 10.0
+        
+        # Temps: Signed 16-bit Little Endian
+        # JS: UnsignToSign(256*je[14]+je[13])
+        case_temp = int.from_bytes(data[13:15], byteorder='little', signed=True)
+        cab_temp = int.from_bytes(data[15:17], byteorder='little', signed=True)
+
+        status_str = "ON" if running_state > 0 else "OFF"
+        
+        _LOGGER.info(f"\n--- HEATER STATUS ---")
+        _LOGGER.info(f"  State:       {status_str} (Code: {running_state})")
+        _LOGGER.info(f"  Error:       {error_code}")
+        _LOGGER.info(f"  Mode:        {running_mode}")
+        _LOGGER.info(f"  Step:        {running_step}")
+        _LOGGER.info(f"  Voltage:     {voltage}V")
+        _LOGGER.info(f"  Case Temp:   {case_temp}°C")
+        _LOGGER.info(f"  Cab Temp:    {cab_temp}°C")
+        _LOGGER.info(f"---------------------\n")
+
     def notification_handler(self, sender, data):
         """Handle BLE notifications and put them in a queue."""
         _LOGGER.info(f"[RECV] Notification from {sender}: {data.hex()}")
+        self.parse_notification(data)
         self.notification_queue.put_nowait(data)
 
     async def connect(self):
@@ -137,14 +186,15 @@ class HeaterCommander:
             
             if expect_response:
                 _LOGGER.info("  Command sent. Waiting 5s for a notification...")
-                response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
-                _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
+                try:
+                    response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
+                    _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
+                except asyncio.TimeoutError:
+                     _LOGGER.warning("  No notification received within 5s.")
             else:
                 _LOGGER.info("  Command sent. No notification expected.")
                 _LOGGER.info(f"  ✅ SUCCESS! Command '{cmd_name}' sent successfully.")
 
-        except asyncio.TimeoutError:
-            _LOGGER.warning("  No notification received.")
         except BleakError as e:
             _LOGGER.error(f"  BLEAK ERROR: {e}")
         except Exception as e:
