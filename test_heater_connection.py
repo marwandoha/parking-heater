@@ -290,29 +290,33 @@ class HeaterCommander:
 
         _LOGGER.info("Starting Brute Force (0000-9999)... Press Ctrl+C to stop.")
         
+        # Ensure notifications are enabled
+        try:
+            await self.client.start_notify(self.notify_uuid, self.notification_handler)
+            _LOGGER.info(f"✅ Listening on {self.notify_uuid}")
+        except Exception as e:
+            _LOGGER.warning(f"Could not start notify (might be already started): {e}")
+
         start_time = time.time()
         
         for i in range(10000):
             passkey = f"{i:04d}"
             
-            # Print progress every 100 attempts
-            if i % 100 == 0:
+            # Print progress every 10 attempts to show activity
+            if i % 10 == 0:
                 elapsed = time.time() - start_time
                 rate = i / elapsed if elapsed > 0 else 0
                 _LOGGER.info(f"Trying {passkey}... (Rate: {rate:.1f} pw/s)")
 
-            # We use the handshake logic but optimized for speed
-            # Just send Step 1 and check for response
-            # If we get DA, it failed. If we get AA 55, it succeeded.
-            # If we get nothing, it might be a timeout or success (depending on device)
-            
             cmd = build_command(1, 0, passkey=passkey)
             try:
-                await self.client.write_gatt_char(self.write_uuid, cmd)
+                # Use response=False for speed and to avoid hanging on write response
+                await self.client.write_gatt_char(self.write_uuid, cmd, response=False)
                 
                 # Wait briefly for a response
                 try:
-                    response = await asyncio.wait_for(self.notification_queue.get(), timeout=0.2)
+                    # 0.1s timeout is enough if the device responds quickly to errors
+                    response = await asyncio.wait_for(self.notification_queue.get(), timeout=0.1)
                     
                     if len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
                         _LOGGER.info(f"✅ FOUND PASSWORD: {passkey}")
@@ -327,18 +331,17 @@ class HeaterCommander:
                         _LOGGER.info(f"❓ Unknown response for {passkey}: {response.hex()}")
                         
                 except asyncio.TimeoutError:
-                    # No response might mean success for some devices, or just slow
-                    # But usually we get DA for error.
-                    # Let's assume DA is always sent for error.
-                    # So timeout *might* be interesting, but we can't be sure.
                     pass
                     
             except Exception as e:
                 _LOGGER.error(f"Write failed: {e}")
-                break
+                # If write fails, we might have lost connection
+                if not self.client.is_connected:
+                    _LOGGER.error("Connection lost.")
+                    break
                 
-            # Small delay to avoid flooding
-            await asyncio.sleep(0.05)
+            # Minimal delay
+            await asyncio.sleep(0.01)
 
         _LOGGER.info("Brute force complete. No password found.")
 
