@@ -48,14 +48,16 @@ def build_command(command: int, data: int, mode: int = 0x55, passkey: str = "123
         payload[3] = random.randint(0, 255)
     else:
         # Use password for standard commands
+        # Password (2 bytes) - Decimal split, NOT bitwise!
+        # JS: n[2]=Math.floor(this.passkey/100), n[3]=this.passkey%100
         try:
-            pk = int(passkey)
-            payload[2] = pk // 100
-            payload[3] = pk % 100
+            passkey_int = int(passkey)
+            payload[2] = (passkey_int // 100) & 0xFF
+            payload[3] = passkey_int % 100
         except ValueError:
-            # Fallback if passkey is not numeric (shouldn't happen with default)
-            payload[2] = 0x0C
-            payload[3] = 0x22
+            _LOGGER.warning(f"Invalid passkey format: {passkey}. Using 0000.")
+            payload[2] = 0
+            payload[3] = 0
 
     payload[4] = command
     payload[5] = data % 256
