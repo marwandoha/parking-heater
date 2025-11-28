@@ -41,7 +41,6 @@ class HeaterCommander:
         self.adapter = adapter
         self.client = None
         self.is_authenticated = False
-        self.notification_queue = asyncio.Queue() # Keep for auth if it relies on queue
         self._notification_data = bytearray()
         self._notification_event = asyncio.Event()
 
@@ -61,6 +60,8 @@ class HeaterCommander:
             self.client = BleakClient(self.mac_address, adapter=self.adapter, timeout=20.0)
             await self.client.connect()
             _LOGGER.info("Connected successfully!")
+            _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
+            await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
             self.is_authenticated = False
         except Exception as e:
             _LOGGER.error(f"Connection failed: {e}")
@@ -91,9 +92,6 @@ class HeaterCommander:
         try:
             _LOGGER.info(f"Writing '{PASSWORD}' to {COMMAND_WRITE_UUID}")
             await self.client.write_gatt_char(COMMAND_WRITE_UUID, password_cmd, response=True)
-
-            _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
-            await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
 
             self.is_authenticated = True
             _LOGGER.info("✅ Authentication Successful! Notification channel is open.")
