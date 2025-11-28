@@ -134,9 +134,9 @@ class HeaterCommander:
         if self.client and self.client.is_connected:
             _LOGGER.warning("Already connected.")
             return
-        _LOGGER.info(f"Connecting to {self.mac_address}...")
+        _LOGGER.info(f"Connecting to {self.address}...")
         try:
-            self.client = BleakClient(self.mac_address, adapter=self.adapter, timeout=20.0)
+            self.client = BleakClient(self.address, adapter=BLUETOOTH_ADAPTER, timeout=20.0)
             await self.client.connect()
             _LOGGER.info("Connected successfully!")
             self.is_authenticated = False
@@ -154,27 +154,42 @@ class HeaterCommander:
         self.client = None
         self.is_authenticated = False
 
+    async def handshake(self):
+        """Performs the initialization handshake."""
+        _LOGGER.info("Performing handshake...")
+        # Step 1: Send Command 1, Mode 85 (AA 55 ...)
+        cmd1 = build_command(1, 0, mode=0x55)
+        _LOGGER.info(f"Handshake Step 1: {cmd1.hex()}")
+        await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd1)
+        await asyncio.sleep(0.5)
+
+        # Step 2: Send Command 1, Mode 136 (AA 88 ...)
+        cmd2 = build_command(1, 0, mode=0x88)
+        _LOGGER.info(f"Handshake Step 2: {cmd2.hex()}")
+        await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd2)
+        await asyncio.sleep(0.5)
+        _LOGGER.info("Handshake complete.")
+
     async def authenticate(self):
-        """Authenticate using the discovered correct method."""
-        if self.is_authenticated:
-            _LOGGER.info("Already authenticated.")
-            return
         if not self.client or not self.client.is_connected:
             _LOGGER.error("Not connected. Please connect first.")
             return
+        if self.is_authenticated:
+            _LOGGER.info("Already authenticated.")
+            return
 
-        _LOGGER.info("Attempting authentication with the known correct method...")
-        password_cmd = PASSWORD.encode('ascii')
-
+        _LOGGER.info("Attempting authentication with handshake...")
+        
         try:
-            _LOGGER.info(f"Writing '{PASSWORD}' to {COMMAND_WRITE_UUID}")
-            await self.client.write_gatt_char(COMMAND_WRITE_UUID, password_cmd, response=True)
-
+            # Start notifications first
             _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
             await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
 
+            # Perform Handshake
+            await self.handshake()
+
             self.is_authenticated = True
-            _LOGGER.info("✅ Authentication Successful! Notification channel is open.")
+            _LOGGER.info("✅ Authentication/Handshake Successful! Notification channel is open.")
 
         except Exception as e:
             _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
