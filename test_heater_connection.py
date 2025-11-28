@@ -23,7 +23,7 @@ CHAR_UUIDS = {
 }
 # Discovered correct UUIDs for auth
 COMMAND_WRITE_UUID = CHAR_UUIDS["ffe1"]
-NOTIFY_UUID = CHAR_UUIDS["ffe4"]
+NOTIFY_UUID = CHAR_UUIDS["ffe1"]  # APK uses FFE1 for both write and notify
 
 # --- Command Builder ---
 def build_command(command: int, data: int, passkey: str = "1234") -> bytearray:
