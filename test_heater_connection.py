@@ -48,35 +48,35 @@ class HeaterTester:
         
     def notification_handler(self, sender, data):
         """Handle BLE notifications."""
-        _LOGGER.info(f"📨 Notification from {sender}: {data.hex()}")
+        _LOGGER.info(f"\U0001f6e2\U0001f6e2 Notification from {sender}: {data.hex()}")
         self.last_notification = data
         self.notification_received.set()
     
     async def scan_for_device(self):
-        _LOGGER.info("🔍 Scanning for devices...")
+        _LOGGER.info("\U0001f50d Scanning for devices...")
         try:
             devices = await BleakScanner.discover(adapter=self.adapter, timeout=10.0)
-            _LOGGER.info(f"\n📡 Found {len(devices)} devices:")
+            _LOGGER.info(f"\n\U0001f4e1 Found {len(devices)} devices:")
             found = any(d.address.upper() == self.mac_address.upper() for d in devices)
             for device in devices:
-                _LOGGER.info(f"  - {device.name or 'Unknown'}: {device.address} {'✅' if device.address.upper() == self.mac_address.upper() else ''}")
+                _LOGGER.info(f"  - {device.name or 'Unknown'}: {device.address} {'\U0001f503' if device.address.upper() == self.mac_address.upper() else ''}")
             if not found:
-                _LOGGER.warning(f"⚠️ Heater with MAC {self.mac_address} not found.")
+                _LOGGER.warning(f"\U0001f6a7 Heater with MAC {self.mac_address} not found.")
         except BleakError as e:
-            _LOGGER.error(f"❌ BleakError during scan: {e}")
+            _LOGGER.error(f"\U0001f6a7 BleakError during scan: {e}")
 
     async def connect(self):
         if self.client and self.client.is_connected:
             _LOGGER.warning("Already connected.")
             return
-        _LOGGER.info(f"🔌 Connecting to {self.mac_address}...")
+        _LOGGER.info(f"\U0001f50a Connecting to {self.mac_address}...")
         try:
             self.client = BleakClient(self.mac_address, adapter=self.adapter, timeout=20.0)
             await self.client.connect()
-            _LOGGER.info("✅ Connected!")
-            self.is_authenticated = False # Reset auth status on new connection
+            _LOGGER.info("\U0001f503 Connected!")
+            self.is_authenticated = False
         except Exception as e:
-            _LOGGER.error(f"❌ Connection failed: {e}")
+            _LOGGER.error(f"\U0001f6a7 Connection failed: {e}")
             self.client = None
 
     async def disconnect(self):
@@ -84,7 +84,7 @@ class HeaterTester:
             _LOGGER.warning("Not connected.")
             return
         await self.client.disconnect()
-        _LOGGER.info("🔌 Disconnected.")
+        _LOGGER.info("\U0001f50a Disconnected.")
         self.client = None
         self.is_authenticated = False
 
@@ -92,11 +92,11 @@ class HeaterTester:
         if not self.client or not self.client.is_connected:
             _LOGGER.warning("Not connected. Please connect first.")
             return
-        _LOGGER.info("\n📋 Discovering services and characteristics...")
+        _LOGGER.info("\n\U0001f4cb Discovering services and characteristics...")
         for service in self.client.services:
-            _LOGGER.info(f"\n🔧 Service: {service.uuid} ({service.description})")
+            _LOGGER.info(f"\n\U0001f6a9 Service: {service.uuid} ({service.description})")
             for char in service.characteristics:
-                _LOGGER.info(f"  - 📝 Char: {char.uuid} ({char.description}) | Properties: {', '.join(char.properties)}")
+                _LOGGER.info(f"  - \U0001f4dd Char: {char.uuid} ({char.description}) | Properties: {', '.join(char.properties)}")
 
     async def select_characteristics(self):
         print("\n--- Select Characteristics ---")
@@ -117,44 +117,71 @@ class HeaterTester:
             _LOGGER.warning("Invalid choice. Keeping existing value.")
 
     async def authenticate(self):
-        """Send the password to the device."""
+        """Send the password to the device in various formats."""
         if not self.client or not self.client.is_connected:
             _LOGGER.warning("Not connected. Please connect first.")
             return
 
-        _LOGGER.info("🔐 Attempting to authenticate...")
-        password_cmd = PASSWORD.encode('ascii')
+        _LOGGER.info("\U0001f510 Attempting to authenticate by trying multiple password formats...")
+        
+        password_bytes = PASSWORD.encode('ascii')
+        password_commands = [
+            password_bytes,
+            bytes([0x76, 0x10, 0x04]) + password_bytes + bytes([sum(bytes([0x76, 0x10, 0x04]) + password_bytes) & 0xFF]),
+            bytes([0xAA, 0x55, 0x04]) + password_bytes,
+        ]
         
         _LOGGER.info(f"📡 Using Write: {self.write_uuid}")
         _LOGGER.info(f"📡 Using Notify: {self.notify_uuid}")
-        _LOGGER.info(f"🔑 Sending password: {password_cmd.hex()}")
         
         try:
-            self.notification_received.clear()
             await self.client.start_notify(self.notify_uuid, self.notification_handler)
-            await self.client.write_gatt_char(self.write_uuid, password_cmd, response=False)
-            
-            try:
-                await asyncio.wait_for(self.notification_received.wait(), timeout=5.0)
-                _LOGGER.info("✅ Got a response to password. Authentication likely successful!")
-                self.is_authenticated = True
-            except asyncio.TimeoutError:
-                _LOGGER.warning("⏱️ No response to password command. Authentication may have failed.")
-                self.is_authenticated = False
-            
+
+            for i, cmd in enumerate(password_commands):
+                if not self.client.is_connected:
+                    _LOGGER.error("Device disconnected during authentication attempts. Aborting.")
+                    self.is_authenticated = False
+                    break
+
+                _LOGGER.info(f"🔑 Trying password format #{i+1}: {cmd.hex()}")
+                self.notification_received.clear()
+                
+                try:
+                    await self.client.write_gatt_char(self.write_uuid, cmd, response=False)
+                    await asyncio.wait_for(self.notification_received.wait(), timeout=3.0)
+                    
+                    _LOGGER.info(f"\U0001f503 Got response for format #{i+1}! Authentication likely successful.")
+                    self.is_authenticated = True
+                    break 
+                
+                except asyncio.TimeoutError:
+                    _LOGGER.warning(f"⏱️ No response for format #{i+1}.")
+                except Exception as e:
+                    _LOGGER.error(f"\U0001f6a7 Error on format #{i+1}. The device may have disconnected.")
+                    # This can happen if the device rejects the command by disconnecting.
+                    break 
+
             await self.client.stop_notify(self.notify_uuid)
+            
+            if not self.is_authenticated:
+                _LOGGER.error("❌ Authentication failed. None of the password formats received a response.")
+
         except Exception as e:
-            _LOGGER.error(f"❌ Authentication failed: {e}", exc_info=True)
+            _LOGGER.error(f"❌ A critical error occurred during notification setup: {e}", exc_info=True)
             self.is_authenticated = False
+
 
     async def _send_and_wait(self, cmd: bytes):
         if not self.client or not self.client.is_connected:
             _LOGGER.warning("Not connected. Please connect first.")
             return
+        
+        if not self.is_authenticated:
+            _LOGGER.warning("⚠️ Not authenticated. Commands may fail. Please try authenticating first.")
             
         _LOGGER.info(f"📡 Using Write: {self.write_uuid}")
         _LOGGER.info(f"📡 Using Notify: {self.notify_uuid}")
-        _LOGGER.info(f"📨 Sending: {cmd.hex()}")
+        _LOGGER.info(f"\U0001f6e2\U0001f6e2 Sending: {cmd.hex()}")
         
         try:
             self.notification_received.clear()
@@ -163,7 +190,7 @@ class HeaterTester:
             
             try:
                 await asyncio.wait_for(self.notification_received.wait(), timeout=5.0)
-                _LOGGER.info("✅ Response received!")
+                _LOGGER.info("\U0001f503 Response received!")
             except asyncio.TimeoutError:
                 _LOGGER.warning("⏱️ No response received.")
             
