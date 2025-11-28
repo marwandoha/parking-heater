@@ -18,16 +18,34 @@ PASSWORD = "1234"
 SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 # All known characteristics
 CHAR_UUIDS = {
-    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # Auth, Command Write, and Notification
+    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # Auth and Command Write
+    "ffe4": "0000ffe4-0000-1000-8000-00805f9b34fb",  # Notification
 }
 # Discovered correct UUIDs for auth
 COMMAND_WRITE_UUID = CHAR_UUIDS["ffe1"]
-NOTIFY_UUID = CHAR_UUIDS["ffe1"]
+NOTIFY_UUID = CHAR_UUIDS["ffe4"]
+
+# --- Command Builder ---
+def build_command(command: int, data: int, passkey: str = "1234") -> bytearray:
+    """Builds the command payload based on reverse-engineered protocol."""
+    payload = bytearray(8)
+    payload[0] = 0xAA
+    payload[1] = 0x55
+    payload[2] = int(passkey) // 100
+    payload[3] = int(passkey) % 100
+    payload[4] = command
+    payload[5] = data & 0xFF
+    payload[6] = (data >> 8) & 0xFF
+    
+    checksum = sum(payload[2:7])
+    payload[7] = checksum & 0xFF
+    
+    return payload
 
 # --- Predefined Commands ---
-CMD_POWER_ON = bytes([0x76, 0x16, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x8E])
-CMD_POWER_OFF = bytes([0x76, 0x16, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8D])
-CMD_GET_STATUS_CMD_TYPE = 0x17
+CMD_POWER_ON = build_command(3, 1, PASSWORD)
+CMD_POWER_OFF = build_command(3, 0, PASSWORD)
+CMD_GET_STATUS = build_command(1, 0, PASSWORD)
 
 
 # --- Setup Logging ---
@@ -41,14 +59,12 @@ class HeaterCommander:
         self.adapter = adapter
         self.client = None
         self.is_authenticated = False
-        self._notification_data = bytearray()
-        self._notification_event = asyncio.Event()
+        self.notification_queue = asyncio.Queue()
 
     def notification_handler(self, sender, data):
-        """Handle BLE notifications and set event."""
+        """Handle BLE notifications and put them in a queue."""
         _LOGGER.info(f"[RECV] Notification from {sender}: {data.hex()}")
-        self._notification_data = data
-        self._notification_event.set()
+        self.notification_queue.put_nowait(data)
 
     async def connect(self):
         """Connect to the heater."""
@@ -60,8 +76,6 @@ class HeaterCommander:
             self.client = BleakClient(self.mac_address, adapter=self.adapter, timeout=20.0)
             await self.client.connect()
             _LOGGER.info("Connected successfully!")
-            _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
-            await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
             self.is_authenticated = False
         except Exception as e:
             _LOGGER.error(f"Connection failed: {e}")
@@ -93,6 +107,9 @@ class HeaterCommander:
             _LOGGER.info(f"Writing '{PASSWORD}' to {COMMAND_WRITE_UUID}")
             await self.client.write_gatt_char(COMMAND_WRITE_UUID, password_cmd, response=True)
 
+            _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
+            await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
+
             self.is_authenticated = True
             _LOGGER.info("✅ Authentication Successful! Notification channel is open.")
 
@@ -102,7 +119,7 @@ class HeaterCommander:
 
     async def send_command(self, cmd: bytes, cmd_name: str, expect_response: bool = True):
         """
-        Send a command to the heater and optionally wait for a response notification.
+        Send a command to the heater.
         """
         if not self.is_authenticated:
             _LOGGER.warning("Not authenticated. Please authenticate first.")
@@ -111,80 +128,27 @@ class HeaterCommander:
         _LOGGER.info(f"\n>>> Sending command: {cmd_name} <<<")
         _LOGGER.info(f"  Payload: {cmd.hex()}")
 
-        self._notification_event.clear()
-        self._notification_data = bytearray()
-
         try:
-            await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=False)
+            # Clear notification queue before sending
+            while not self.notification_queue.empty():
+                self.notification_queue.get_nowait()
+
+            await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=True)
             
             if expect_response:
                 _LOGGER.info("  Command sent. Waiting 5s for a notification...")
-                try:
-                    await asyncio.wait_for(self._notification_event.wait(), timeout=5.0)
-                    response = self._notification_data
-                    _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
-
-                    if cmd_name == "Get Status":
-                        self.parse_status_response(response)
-                except asyncio.TimeoutError:
-                    _LOGGER.warning("  No notification received within the timeout.")
-                    response = bytearray()
+                response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
+                _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
             else:
                 _LOGGER.info("  Command sent. No notification expected.")
                 _LOGGER.info(f"  ✅ SUCCESS! Command '{cmd_name}' sent successfully.")
-                response = bytearray() # No response expected, so set to empty
 
-            return response
-
+        except asyncio.TimeoutError:
+            _LOGGER.warning("  No notification received.")
         except BleakError as e:
             _LOGGER.error(f"  BLEAK ERROR: {e}")
-            return bytearray()
         except Exception as e:
             _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
-            return bytearray()
-
-    def parse_status_response(self, response: bytearray):
-        """
-        Parses the status response from the heater.
-        Heater's on/off status is extracted from the 4th byte (index 3) of this response.
-        0x01 means ON, 0x00 means OFF.
-        Other status: target_temperature (index 4), current_temperature (index 5),
-        fan_speed (index 6), and error_code (index 7).
-        """
-        if len(response) > 7: # Ensure all expected bytes are present
-            power_status_byte = response[3]
-            heater_status = "UNKNOWN"
-            if power_status_byte == 0x01:
-                heater_status = "ON"
-            elif power_status_byte == 0x00:
-                heater_status = "OFF"
-            
-            target_temperature = response[4]
-            current_temperature = response[5]
-            fan_speed = response[6]
-            error_code = response[7]
-
-            _LOGGER.info(f"  Heater Status: {heater_status}")
-            _LOGGER.info(f"  Target Temperature: {target_temperature}°C")
-            _LOGGER.info(f"  Current Temperature: {current_temperature}°C")
-            _LOGGER.info(f"  Fan Speed: {fan_speed}")
-            _LOGGER.info(f"  Error Code: {error_code}")
-            return heater_status
-        else:
-            _LOGGER.warning(f"  Status response too short to parse all states. Expected at least 8 bytes, got {len(response)}. Full response: {response.hex()}")
-            return "UNKNOWN"
-
-    def _calculate_checksum(self, data: bytes) -> int:
-        """Calculate checksum for command."""
-        return sum(data) & 0xFF
-
-    def _build_command(self, cmd_type: int, data: bytes = b"") -> bytes:
-        """Build a command with checksum."""
-        # Command format: [0x76, cmd_type, length, data..., checksum]
-        length = len(data)
-        command = bytes([0x76, cmd_type, length]) + data
-        checksum = self._calculate_checksum(command)
-        return command + bytes([checksum])
 
     async def menu(self):
         """Display the interactive main menu."""
@@ -205,18 +169,12 @@ class HeaterCommander:
                 print("1. Turn On | 2. Turn Off | 3. Get Status")
                 cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
                 cmd, name = None, None
-                if cmd_choice == '1': 
-                    cmd = CMD_POWER_ON
-                    name = "Power On"
-                elif cmd_choice == '2': 
-                    cmd = CMD_POWER_OFF
-                    name = "Power Off"
-                elif cmd_choice == '3': 
-                    cmd = self._build_command(CMD_GET_STATUS_CMD_TYPE)
-                    name = "Get Status"
+                if cmd_choice == '1': cmd, name = CMD_POWER_ON, "Power On"
+                elif cmd_choice == '2': cmd, name = CMD_POWER_OFF, "Power Off"
+                elif cmd_choice == '3': cmd, name = CMD_GET_STATUS, "Get Status"
                 
                 if cmd:
-                    if name == "Power On" or name == "Power Off": # Power commands do not expect a notification response
+                    if name == "Power On":
                         await self.send_command(cmd, name, expect_response=False)
                     else:
                         await self.send_command(cmd, name)
