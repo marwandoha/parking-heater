@@ -265,12 +265,20 @@ class HeaterCommander:
         _LOGGER.info("Attempting authentication...")
         
         try:
-            # Start notifications first
-            _LOGGER.info(f"Starting notifications on {self.notify_uuid}")
-            try:
-                await self.client.start_notify(self.notify_uuid, self.notification_handler)
-            except Exception as e:
-                _LOGGER.warning(f"Could not start notify (might be already started): {e}")
+            # Start notifications on ALL known notify characteristics
+            # This helps if the device sends status on a different channel than the one we write to
+            notify_uuids = [self.notify_uuid]
+            if self.notify_uuid == NOTIFY_UUID_NEW:
+                 # If using new protocol, also try FFE4
+                 notify_uuids.append("0000ffe4-0000-1000-8000-00805f9b34fb")
+
+            for uuid in notify_uuids:
+                _LOGGER.info(f"Starting notifications on {uuid}...")
+                try:
+                    await self.client.start_notify(uuid, self.notification_handler)
+                    _LOGGER.info(f"✅ Listening on {uuid}")
+                except Exception as e:
+                    _LOGGER.warning(f"Could not start notify on {uuid}: {e}")
 
             # Try common passwords
             passwords = ["1234", "0000", "1111", "8888", "9999", "1688", "54321", "6666", "123456", "654321"]
