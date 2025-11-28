@@ -63,9 +63,9 @@ def build_command(command: int, data: int, mode: int = 0x55, passkey: str = "123
     return payload
 
 # --- Predefined Commands ---
-CMD_POWER_ON = build_command(3, 1, PASSWORD)
-CMD_POWER_OFF = build_command(3, 0, PASSWORD)
-CMD_GET_STATUS = build_command(1, 0, PASSWORD)
+CMD_POWER_ON = build_command(3, 1, passkey=PASSWORD)
+CMD_POWER_OFF = build_command(3, 0, passkey=PASSWORD)
+CMD_GET_STATUS = build_command(1, 0, passkey=PASSWORD)
 
 
 # --- Setup Logging ---
