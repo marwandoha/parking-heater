@@ -25,9 +25,9 @@ COMMAND_WRITE_UUID = CHAR_UUIDS["ffe1"]
 NOTIFY_UUID = CHAR_UUIDS["ffe1"]
 
 # --- Predefined Commands ---
-CMD_POWER_ON = bytes([0x76, 0x16, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x8E])
-CMD_POWER_OFF = bytes([0x76, 0x16, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8D])
-CMD_GET_STATUS = bytes([0x76, 0x17, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8E])
+CMD_POWER_ON_CMD_TYPE = 0x16
+CMD_POWER_OFF_CMD_TYPE = 0x16
+CMD_GET_STATUS_CMD_TYPE = 0x17
 
 
 # --- Setup Logging ---
@@ -176,6 +176,18 @@ class HeaterCommander:
             _LOGGER.warning(f"  Status response too short to parse all states. Expected at least 8 bytes, got {len(response)}. Full response: {response.hex()}")
             return "UNKNOWN"
 
+    def _calculate_checksum(self, data: bytes) -> int:
+        """Calculate checksum for command."""
+        return sum(data) & 0xFF
+
+    def _build_command(self, cmd_type: int, data: bytes = b"") -> bytes:
+        """Build a command with checksum."""
+        # Command format: [0x76, cmd_type, length, data..., checksum]
+        length = len(data)
+        command = bytes([0x76, cmd_type, length]) + data
+        checksum = self._calculate_checksum(command)
+        return command + bytes([checksum])
+
     async def menu(self):
         """Display the interactive main menu."""
         while True:
@@ -195,12 +207,18 @@ class HeaterCommander:
                 print("1. Turn On | 2. Turn Off | 3. Get Status")
                 cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
                 cmd, name = None, None
-                if cmd_choice == '1': cmd, name = CMD_POWER_ON, "Power On"
-                elif cmd_choice == '2': cmd, name = CMD_POWER_OFF, "Power Off"
-                elif cmd_choice == '3': cmd, name = CMD_GET_STATUS, "Get Status"
+                if cmd_choice == '1': 
+                    cmd = self._build_command(CMD_POWER_ON_CMD_TYPE, bytes([0x01]))
+                    name = "Power On"
+                elif cmd_choice == '2': 
+                    cmd = self._build_command(CMD_POWER_OFF_CMD_TYPE, bytes([0x00]))
+                    name = "Power Off"
+                elif cmd_choice == '3': 
+                    cmd = self._build_command(CMD_GET_STATUS_CMD_TYPE)
+                    name = "Get Status"
                 
                 if cmd:
-                    if name == "Power On":
+                    if name == "Power On" or name == "Power Off": # Power commands do not expect a notification response
                         await self.send_command(cmd, name, expect_response=False)
                     else:
                         await self.send_command(cmd, name)
