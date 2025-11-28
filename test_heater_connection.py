@@ -100,22 +100,18 @@ class HeaterCommander:
             _LOGGER.error("Not connected. Please connect first.")
             return
 
-        _LOGGER.info("Attempting authentication...")
-        
-        auth_cmd = build_command(1, 0, PASSWORD)
+        _LOGGER.info("Attempting authentication with the known correct method...")
+        password_cmd = PASSWORD.encode('ascii')
 
         try:
+            _LOGGER.info(f"Writing '{PASSWORD}' to {COMMAND_WRITE_UUID}")
+            await self.client.write_gatt_char(COMMAND_WRITE_UUID, password_cmd, response=True)
+
             _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
             await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
-            
-            _LOGGER.info(f"Writing auth command to {COMMAND_WRITE_UUID}")
-            await self.client.write_gatt_char(COMMAND_WRITE_UUID, auth_cmd, response=True)
-
-            _LOGGER.info("Waiting for initial notification to confirm auth...")
-            response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
 
             self.is_authenticated = True
-            _LOGGER.info(f"✅ Authentication Successful! Initial response: {response.hex()}")
+            _LOGGER.info("✅ Authentication Successful! Notification channel is open.")
 
         except Exception as e:
             _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
