@@ -378,7 +378,7 @@ class HeaterCommander:
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
             protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
             print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -452,6 +452,8 @@ class HeaterCommander:
                 self.toggle_protocol()
             elif choice == '11':
                 await self.list_services()
+            elif choice == '12':
+                await self.test_characteristics()
             else:
                 _LOGGER.warning("Invalid choice.")
 
@@ -467,6 +469,49 @@ class HeaterCommander:
             for char in service.characteristics:
                 props = ",".join(char.properties)
                 _LOGGER.info(f"  [Char] {char.uuid} ({props})")
+
+    async def test_characteristics(self):
+        """Reads from FFE2/FFE5 and attempts write to FFE3."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected.")
+            return
+
+        # Define UUIDs to test
+        read_uuids = [
+            "0000ffe1-0000-1000-8000-00805f9b34fb", # Main
+            "0000ffe2-0000-1000-8000-00805f9b34fb", # Read-only
+            "0000ffe5-0000-1000-8000-00805f9b34fb", # Read-only
+        ]
+        write_uuid_ffe3 = "0000ffe3-0000-1000-8000-00805f9b34fb"
+
+        _LOGGER.info("\n--- Testing Characteristics ---")
+        
+        # 1. Read Characteristics
+        for uuid in read_uuids:
+            _LOGGER.info(f"Reading {uuid}...")
+            try:
+                data = await self.client.read_gatt_char(uuid)
+                _LOGGER.info(f"  [READ] {uuid}: {data.hex()}")
+                # Try parsing as status just in case
+                if len(data) >= 2 and data[0] == 0xAA and data[1] == 0x55:
+                    self.parse_notification(data)
+            except Exception as e:
+                _LOGGER.warning(f"  Failed to read {uuid}: {e}")
+
+        # 2. Write to FFE3
+        _LOGGER.info(f"Writing 'Get Status' to {write_uuid_ffe3}...")
+        cmd = build_command(1, 0, passkey=PASSWORD)
+        try:
+            await self.client.write_gatt_char(write_uuid_ffe3, cmd)
+            _LOGGER.info("  Command sent to FFE3. Waiting 5s for any notification...")
+            try:
+                response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
+                _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
+            except asyncio.TimeoutError:
+                _LOGGER.warning("  No notification received within 5s.")
+        except Exception as e:
+            _LOGGER.warning(f"  Failed to write to FFE3: {e}")
+
 
 
 
