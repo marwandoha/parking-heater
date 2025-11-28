@@ -6,6 +6,7 @@ finding the correct way to send commands.
 
 import asyncio
 import logging
+import time
 from bleak import BleakClient, BleakError, BleakScanner
 
 # --- Configuration ---
@@ -281,52 +282,65 @@ class HeaterCommander:
         _LOGGER.info("Handshake complete.")
         return True
 
-    async def authenticate(self):
+    async def brute_force_password(self):
+        """Try all passwords from 0000 to 9999."""
         if not self.client or not self.client.is_connected:
-            _LOGGER.error("Not connected. Please connect first.")
-            return
-        if self.is_authenticated:
-            _LOGGER.info("Already authenticated.")
+            _LOGGER.error("Not connected.")
             return
 
-        _LOGGER.info("Attempting authentication...")
+        _LOGGER.info("Starting Brute Force (0000-9999)... Press Ctrl+C to stop.")
         
-        try:
-            # Start notifications on ALL known notify characteristics
-            # This helps if the device sends status on a different channel than the one we write to
-            notify_uuids = [self.notify_uuid]
-            if self.notify_uuid == NOTIFY_UUID_NEW:
-                 # If using new protocol, also try FFE4
-                 notify_uuids.append("0000ffe4-0000-1000-8000-00805f9b34fb")
-
-            for uuid in notify_uuids:
-                _LOGGER.info(f"Starting notifications on {uuid}...")
-                try:
-                    await self.client.start_notify(uuid, self.notification_handler)
-                    _LOGGER.info(f"✅ Listening on {uuid}")
-                except Exception as e:
-                    _LOGGER.warning(f"Could not start notify on {uuid}: {e}")
-
-            # Try common passwords
-            passwords = ["1234", "0000", "1111", "8888", "9999", "1688", "54321", "6666", "123456", "654321"]
+        start_time = time.time()
+        
+        for i in range(10000):
+            passkey = f"{i:04d}"
             
-            for pk in passwords:
-                if await self.handshake(pk):
-                    _LOGGER.info(f"✅ Authentication Successful with passkey '{pk}'!")
-                    self.is_authenticated = True
-                    # Update global password for future commands
-                    global PASSWORD
-                    PASSWORD = pk
-                    return
-                _LOGGER.warning(f"Authentication failed with passkey '{pk}'. Retrying...")
-                await asyncio.sleep(1.0)
+            # Print progress every 100 attempts
+            if i % 100 == 0:
+                elapsed = time.time() - start_time
+                rate = i / elapsed if elapsed > 0 else 0
+                _LOGGER.info(f"Trying {passkey}... (Rate: {rate:.1f} pw/s)")
 
-            _LOGGER.error("❌ All passwords failed.")
-            self.is_authenticated = False
+            # We use the handshake logic but optimized for speed
+            # Just send Step 1 and check for response
+            # If we get DA, it failed. If we get AA 55, it succeeded.
+            # If we get nothing, it might be a timeout or success (depending on device)
+            
+            cmd = build_command(1, 0, passkey=passkey)
+            try:
+                await self.client.write_gatt_char(self.write_uuid, cmd)
+                
+                # Wait briefly for a response
+                try:
+                    response = await asyncio.wait_for(self.notification_queue.get(), timeout=0.2)
+                    
+                    if len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
+                        _LOGGER.info(f"✅ FOUND PASSWORD: {passkey}")
+                        global PASSWORD
+                        PASSWORD = passkey
+                        self.is_authenticated = True
+                        return
+                    elif len(response) > 0 and response[0] == 0xDA:
+                        # Password error, continue
+                        pass
+                    else:
+                        _LOGGER.info(f"❓ Unknown response for {passkey}: {response.hex()}")
+                        
+                except asyncio.TimeoutError:
+                    # No response might mean success for some devices, or just slow
+                    # But usually we get DA for error.
+                    # Let's assume DA is always sent for error.
+                    # So timeout *might* be interesting, but we can't be sure.
+                    pass
+                    
+            except Exception as e:
+                _LOGGER.error(f"Write failed: {e}")
+                break
+                
+            # Small delay to avoid flooding
+            await asyncio.sleep(0.05)
 
-        except Exception as e:
-            _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
-            self.is_authenticated = False
+        _LOGGER.info("Brute force complete. No password found.")
 
     async def send_command(self, command: bytearray, command_name: str, expect_response: bool = True, bypass_auth: bool = False):
         """Sends a command to the heater."""
@@ -385,7 +399,7 @@ class HeaterCommander:
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
             protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
             print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics | 14. Brute Force Password")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -463,6 +477,8 @@ class HeaterCommander:
                 await self.test_characteristics()
             elif choice == '13':
                 await self.monitor_status()
+            elif choice == '14':
+                await self.brute_force_password()
             else:
                 _LOGGER.warning("Invalid choice.")
 
