@@ -18,34 +18,16 @@ PASSWORD = "1234"
 SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 # All known characteristics
 CHAR_UUIDS = {
-    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # Auth and Command Write
-    "ffe4": "0000ffe4-0000-1000-8000-00805f9b34fb",  # Notification
+    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # Auth, Command Write, and Notification
 }
 # Discovered correct UUIDs for auth
 COMMAND_WRITE_UUID = CHAR_UUIDS["ffe1"]
-NOTIFY_UUID = CHAR_UUIDS["ffe4"]
-
-# --- Command Builder ---
-def build_command(command: int, data: int, passkey: str = "1234") -> bytearray:
-    """Builds the command payload based on reverse-engineered protocol."""
-    payload = bytearray(8)
-    payload[0] = 0xAA
-    payload[1] = 0x55
-    payload[2] = int(passkey) // 100
-    payload[3] = int(passkey) % 100
-    payload[4] = command
-    payload[5] = data & 0xFF
-    payload[6] = (data >> 8) & 0xFF
-    
-    checksum = sum(payload[2:7])
-    payload[7] = checksum & 0xFF
-    
-    return payload
+NOTIFY_UUID = CHAR_UUIDS["ffe1"]
 
 # --- Predefined Commands ---
-CMD_POWER_ON = build_command(3, 1, PASSWORD)
-CMD_POWER_OFF = build_command(3, 0, PASSWORD)
-CMD_GET_STATUS = build_command(1, 0, PASSWORD)
+CMD_POWER_ON = bytes([0x76, 0x16, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x8E])
+CMD_POWER_OFF = bytes([0x76, 0x16, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8D])
+CMD_GET_STATUS = bytes([0x76, 0x17, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8E])
 
 
 # --- Setup Logging ---
@@ -156,22 +138,32 @@ class HeaterCommander:
     def parse_status_response(self, response: bytearray):
         """
         Parses the status response from the heater.
-        Assumes the power status is in the 5th byte (index 4) of the response.
-        1 means ON, 0 means OFF. (This is an assumption and needs verification).
+        Heater's on/off status is extracted from the 4th byte (index 3) of this response.
+        0x01 means ON, 0x00 means OFF.
+        Other status: target_temperature (index 4), current_temperature (index 5),
+        fan_speed (index 6), and error_code (index 7).
         """
-        if len(response) > 4:
-            power_status_byte = response[4]
-            if power_status_byte == 1:
-                _LOGGER.info("  Heater Status: ON")
-                return "ON"
-            elif power_status_byte == 0:
-                _LOGGER.info("  Heater Status: OFF")
-                return "OFF"
-            else:
-                _LOGGER.warning(f"  Unknown power status byte: {power_status_byte}. Full response: {response.hex()}")
-                return "UNKNOWN"
+        if len(response) > 7: # Ensure all expected bytes are present
+            power_status_byte = response[3]
+            heater_status = "UNKNOWN"
+            if power_status_byte == 0x01:
+                heater_status = "ON"
+            elif power_status_byte == 0x00:
+                heater_status = "OFF"
+            
+            target_temperature = response[4]
+            current_temperature = response[5]
+            fan_speed = response[6]
+            error_code = response[7]
+
+            _LOGGER.info(f"  Heater Status: {heater_status}")
+            _LOGGER.info(f"  Target Temperature: {target_temperature}°C")
+            _LOGGER.info(f"  Current Temperature: {current_temperature}°C")
+            _LOGGER.info(f"  Fan Speed: {fan_speed}")
+            _LOGGER.info(f"  Error Code: {error_code}")
+            return heater_status
         else:
-            _LOGGER.warning(f"  Status response too short to parse power state. Full response: {response.hex()}")
+            _LOGGER.warning(f"  Status response too short to parse all states. Expected at least 8 bytes, got {len(response)}. Full response: {response.hex()}")
             return "UNKNOWN"
 
     async def menu(self):
