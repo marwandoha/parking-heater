@@ -76,10 +76,24 @@ class HeaterCommander:
         """
         if len(data) < 17:
             _LOGGER.warning(f"Notification data too short: {data.hex()}")
+            # Even if too short, check header for potential ASCII message
+            if len(data) >= 2 and (data[0] != 0xAA or data[1] != 0x55):
+                try:
+                    ascii_msg = data.decode('ascii', errors='ignore')
+                    _LOGGER.warning(f"Unknown header/short data: {data.hex()}")
+                    _LOGGER.warning(f"Decoded as ASCII: {ascii_msg}")
+                except Exception:
+                    _LOGGER.warning(f"Unknown header/short data: {data.hex()}")
             return
 
         if data[0] != 0xAA or data[1] != 0x55:
             _LOGGER.warning(f"Unknown header: {data.hex()}")
+            # Try to decode as ASCII to see if it's a text message (e.g. error)
+            try:
+                ascii_msg = data.decode('ascii', errors='ignore')
+                _LOGGER.warning(f"Decoded as ASCII: {ascii_msg}")
+            except Exception:
+                pass # Ignore if not ASCII
             return
 
         # Parsing
