@@ -316,12 +316,13 @@ class HeaterCommander:
         """Display the interactive main menu."""
         while True:
             print("\n--- Main Menu ---")
-            status = f"Status: {'Connected' if self.client and self.client.is_connected else 'Disconnected'}"
-            status += f" | {'Authenticated' if self.is_authenticated else 'Not Authenticated'}"
-            print(status)
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit")
+            status = "Connected" if self.client and self.client.is_connected else "Disconnected"
+            auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
+            print(f"Status: {status} | {auth_status}")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth)")
+            
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
-
+            
             if choice == '1':
                 await self.connect()
             elif choice == '2':
@@ -356,6 +357,13 @@ class HeaterCommander:
                 if self.client and self.client.is_connected:
                     await self.disconnect()
                 break
+            elif choice == '7':
+                await self.set_manual_password()
+            elif choice == '8':
+                # Force Turn On using current PASSWORD (default 1234 if not set)
+                _LOGGER.info(f"Forcing Turn On with passkey '{PASSWORD}'...")
+                cmd = build_command(3, 1, passkey=PASSWORD)
+                await self.send_command(cmd, "Power On (Forced)", expect_response=False)
             else:
                 _LOGGER.warning("Invalid choice.")
 
