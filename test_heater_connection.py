@@ -353,7 +353,7 @@ class HeaterCommander:
                 await self.authenticate()
             elif choice == '3':
                 print("\n--- Select Command to Send ---")
-                print("1. Turn On | 2. Turn Off | 3. Get Status | 4. Get Status (Mode 102) | 5. Command 2 (Get Status?)")
+                print("1. Turn On | 2. Turn Off | 3. Get Status | 4. Get Status (Mode 102) | 5. Cmd 2 | 6. Get Status (Mode 88)")
                 cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
                 cmd, name = None, None
                 
@@ -386,6 +386,10 @@ class HeaterCommander:
                     # Try Command 2 (Hypothesis: maybe this is status?)
                     cmd = build_command(2, 0, passkey=PASSWORD)
                     name = "Command 2 (Get Status?)"
+                elif cmd_choice == '6':
+                    # Try Mode 136 (0x88)
+                    cmd = build_command(1, 0, mode=0x88, passkey=PASSWORD)
+                    name = "Get Status (Mode 88)"
                 
                 if cmd:
                     # For Power On, we might not expect a response if it's just a write
