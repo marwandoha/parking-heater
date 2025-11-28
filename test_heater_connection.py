@@ -139,6 +139,9 @@ class HeaterCommander:
                 _LOGGER.info("  Command sent. Waiting 5s for a notification...")
                 response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
                 _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
+
+                if cmd_name == "Get Status":
+                    self.parse_status_response(response)
             else:
                 _LOGGER.info("  Command sent. No notification expected.")
                 _LOGGER.info(f"  ✅ SUCCESS! Command '{cmd_name}' sent successfully.")
@@ -149,6 +152,27 @@ class HeaterCommander:
             _LOGGER.error(f"  BLEAK ERROR: {e}")
         except Exception as e:
             _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
+
+    def parse_status_response(self, response: bytearray):
+        """
+        Parses the status response from the heater.
+        Assumes the power status is in the 5th byte (index 4) of the response.
+        1 means ON, 0 means OFF. (This is an assumption and needs verification).
+        """
+        if len(response) > 4:
+            power_status_byte = response[4]
+            if power_status_byte == 1:
+                _LOGGER.info("  Heater Status: ON")
+                return "ON"
+            elif power_status_byte == 0:
+                _LOGGER.info("  Heater Status: OFF")
+                return "OFF"
+            else:
+                _LOGGER.warning(f"  Unknown power status byte: {power_status_byte}. Full response: {response.hex()}")
+                return "UNKNOWN"
+        else:
+            _LOGGER.warning(f"  Status response too short to parse power state. Full response: {response.hex()}")
+            return "UNKNOWN"
 
     async def menu(self):
         """Display the interactive main menu."""
