@@ -41,12 +41,15 @@ class HeaterCommander:
         self.adapter = adapter
         self.client = None
         self.is_authenticated = False
-        self.notification_queue = asyncio.Queue()
+        self.notification_queue = asyncio.Queue() # Keep for auth if it relies on queue
+        self._notification_data = bytearray()
+        self._notification_event = asyncio.Event()
 
     def notification_handler(self, sender, data):
-        """Handle BLE notifications and put them in a queue."""
+        """Handle BLE notifications and set event."""
         _LOGGER.info(f"[RECV] Notification from {sender}: {data.hex()}")
-        self.notification_queue.put_nowait(data)
+        self._notification_data = data
+        self._notification_event.set()
 
     async def connect(self):
         """Connect to the heater."""
@@ -101,7 +104,7 @@ class HeaterCommander:
 
     async def send_command(self, cmd: bytes, cmd_name: str, expect_response: bool = True):
         """
-        Send a command to the heater.
+        Send a command to the heater and optionally wait for a response notification.
         """
         if not self.is_authenticated:
             _LOGGER.warning("Not authenticated. Please authenticate first.")
@@ -110,30 +113,37 @@ class HeaterCommander:
         _LOGGER.info(f"\n>>> Sending command: {cmd_name} <<<")
         _LOGGER.info(f"  Payload: {cmd.hex()}")
 
-        try:
-            # Clear notification queue before sending
-            while not self.notification_queue.empty():
-                self.notification_queue.get_nowait()
+        self._notification_event.clear()
+        self._notification_data = bytearray()
 
-            await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=True)
+        try:
+            await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=False)
             
             if expect_response:
                 _LOGGER.info("  Command sent. Waiting 5s for a notification...")
-                response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
-                _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
+                try:
+                    await asyncio.wait_for(self._notification_event.wait(), timeout=5.0)
+                    response = self._notification_data
+                    _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
 
-                if cmd_name == "Get Status":
-                    self.parse_status_response(response)
+                    if cmd_name == "Get Status":
+                        self.parse_status_response(response)
+                except asyncio.TimeoutError:
+                    _LOGGER.warning("  No notification received within the timeout.")
+                    response = bytearray()
             else:
                 _LOGGER.info("  Command sent. No notification expected.")
                 _LOGGER.info(f"  ✅ SUCCESS! Command '{cmd_name}' sent successfully.")
+                response = bytearray() # No response expected, so set to empty
 
-        except asyncio.TimeoutError:
-            _LOGGER.warning("  No notification received.")
+            return response
+
         except BleakError as e:
             _LOGGER.error(f"  BLEAK ERROR: {e}")
+            return bytearray()
         except Exception as e:
             _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
+            return bytearray()
 
     def parse_status_response(self, response: bytearray):
         """
