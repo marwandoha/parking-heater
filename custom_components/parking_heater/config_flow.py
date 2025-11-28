@@ -7,6 +7,8 @@ from typing import Any
 import voluptuous as vol
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
+from bleak import BleakClient
+import asyncio
 
 from .helpers.scan import async_ble_scan
 
@@ -18,7 +20,14 @@ from homeassistant.components.bluetooth import (
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import CONF_DEVICE_NAME, CONF_MAC_ADDRESS, DOMAIN, SERVICE_UUID
+from .const import (
+    CONF_DEVICE_NAME,
+    CONF_MAC_ADDRESS,
+    DOMAIN,
+    SERVICE_UUID,
+    WRITE_CHAR_UUID,
+    NOTIFY_CHAR_UUID,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,13 +46,29 @@ class ParkingHeaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
-
         if user_input is not None:
             mac_address = user_input[CONF_MAC_ADDRESS]
             await self.async_set_unique_id(mac_address.lower())
             self._abort_if_unique_id_configured()
 
             device_name = user_input.get(CONF_DEVICE_NAME, f"Parking Heater {mac_address[-5:]}")
+
+            # Attempt a connection test before creating entry
+            _LOGGER.info("Testing connection to %s", mac_address)
+            ok, reason = await self._async_test_connection(mac_address)
+            if not ok:
+                _LOGGER.warning("Connection test failed: %s", reason)
+                errors["base"] = "connect_failed"
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema(
+                        {
+                            vol.Required(CONF_MAC_ADDRESS): str,
+                            vol.Optional(CONF_DEVICE_NAME, default=device_name): str,
+                        }
+                    ),
+                    errors=errors,
+                )
 
             return self.async_create_entry(
                 title=device_name,
@@ -155,3 +180,52 @@ class ParkingHeaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         _LOGGER.debug("Found %d devices", len(discovered))
         return discovered
+
+    async def _async_test_connection(self, address: str) -> tuple[bool, str]:
+        """Try to connect to the device and verify expected service/characteristics.
+
+        Returns (ok, reason)."""
+        _LOGGER.debug("Attempting connection test to %s", address)
+        client = BleakClient(address)
+        try:
+            try:
+                await asyncio.wait_for(client.connect(), timeout=20.0)
+            except asyncio.TimeoutError:
+                return False, "timeout"
+            except Exception as e:
+                return False, f"connect_error:{e}"
+
+            # Ensure services are discovered
+            try:
+                services = await asyncio.wait_for(client.get_services(), timeout=10.0)
+            except Exception:
+                services = client.services
+
+            found_service = False
+            found_write = False
+            found_notify = False
+
+            for svc in services:
+                if svc.uuid.lower().startswith(SERVICE_UUID.lower()[:8]):
+                    found_service = True
+                for char in svc.characteristics:
+                    cu = char.uuid.lower()
+                    if cu == WRITE_CHAR_UUID.lower():
+                        found_write = True
+                    if cu == NOTIFY_CHAR_UUID.lower():
+                        found_notify = True
+
+            if not found_service:
+                return False, "service_missing"
+
+            # At least one of write/notify should be present
+            if not (found_write or found_notify):
+                return False, "characteristic_missing"
+
+            return True, "ok"
+        finally:
+            try:
+                if client and client.is_connected:
+                    await client.disconnect()
+            except Exception:
+                pass
