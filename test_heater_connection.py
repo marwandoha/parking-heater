@@ -54,8 +54,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class HeaterCommander:
-    def __init__(self, mac_address: str, adapter: str):
-        self.mac_address = mac_address
+    def __init__(self, address: str, adapter: str):
+        self.address = address
         self.adapter = adapter
         self.client = None
         self.is_authenticated = False
