@@ -12,24 +12,23 @@ from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
 
 # Configuration
-HEATER_MAC = "E0:4E:7A:AD:E8:EE"
+HEATER_MAC = "E0:4E:7A:AD:E8:EE"  # Second heater on hci1
 BLUETOOTH_ADAPTER = "hci1"  # F4:4E:FC:13:83:6D
 PASSWORD = "1234"
 
-# BLE UUIDs to try
+# BLE UUIDs (confirmed from scan)
 SERVICE_UUIDS = [
-    "0000fff0-0000-1000-8000-00805f9b34fb",
-    "0000ffe0-0000-1000-8000-00805f9b34fb",
+    "0000ffe0-0000-1000-8000-00805f9b34fb",  # Confirmed
 ]
 
 WRITE_CHAR_UUIDS = [
-    "0000fff1-0000-1000-8000-00805f9b34fb",
-    "0000ffe1-0000-1000-8000-00805f9b34fb",
+    "0000ffe1-0000-1000-8000-00805f9b34fb",  # Confirmed (read/write/notify)
+    "0000ffe3-0000-1000-8000-00805f9b34fb",  # Alternative write
 ]
 
 NOTIFY_CHAR_UUIDS = [
-    "0000fff2-0000-1000-8000-00805f9b34fb",
-    "0000ffe2-0000-1000-8000-00805f9b34fb",
+    "0000ffe1-0000-1000-8000-00805f9b34fb",  # Confirmed (read/write/notify) 
+    "0000ffe4-0000-1000-8000-00805f9b34fb",  # Alternative notify
 ]
 
 # Setup logging
