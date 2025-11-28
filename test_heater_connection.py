@@ -14,16 +14,21 @@ BLUETOOTH_ADAPTER = "hci0"
 PASSWORD = "1234"
 
 # --- UUIDs ---
-# Service UUID
-SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
-# All known characteristics
-CHAR_UUIDS = {
-    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # Auth and Command Write
-    "ffe4": "0000ffe4-0000-1000-8000-00805f9b34fb",  # Notification
-}
-# Discovered correct UUIDs for auth
-COMMAND_WRITE_UUID = CHAR_UUIDS["ffe1"]
-NOTIFY_UUID = CHAR_UUIDS["ffe1"]  # APK uses FFE1 for both write and notify
+# --- UUIDs ---
+# New Protocol (FFE0)
+SERVICE_UUID_NEW = "0000ffe0-0000-1000-8000-00805f9b34fb"
+WRITE_UUID_NEW = "0000ffe1-0000-1000-8000-00805f9b34fb"
+NOTIFY_UUID_NEW = "0000ffe1-0000-1000-8000-00805f9b34fb"
+
+# Old Protocol (FFF0)
+SERVICE_UUID_OLD = "0000fff0-0000-1000-8000-00805f9b34fb"
+WRITE_UUID_OLD = "0000fff2-0000-1000-8000-00805f9b34fb"
+NOTIFY_UUID_OLD = "0000fff1-0000-1000-8000-00805f9b34fb"
+
+# Default to New Protocol
+SERVICE_UUID = SERVICE_UUID_NEW
+COMMAND_WRITE_UUID = WRITE_UUID_NEW
+NOTIFY_UUID = NOTIFY_UUID_NEW
 
 # --- Command Builder ---
 def build_command(command: int, data: int, mode: int = 0x55, passkey: str = "1234") -> bytearray:
@@ -62,11 +67,6 @@ def build_command(command: int, data: int, mode: int = 0x55, passkey: str = "123
     
     return payload
 
-# --- Predefined Commands ---
-# Commands are now built dynamically in the menu to ensure they use the correct PASSWORD
-
-
-
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 _LOGGER = logging.getLogger(__name__)
@@ -79,6 +79,32 @@ class HeaterCommander:
         self.client = None
         self.is_authenticated = False
         self.notification_queue = asyncio.Queue()
+        
+        # Protocol State
+        self.use_old_protocol = False
+        self.service_uuid = SERVICE_UUID_NEW
+        self.write_uuid = WRITE_UUID_NEW
+        self.notify_uuid = NOTIFY_UUID_NEW
+
+    def toggle_protocol(self):
+        """Switches between New (FFE0) and Old (FFF0) protocols."""
+        self.use_old_protocol = not self.use_old_protocol
+        if self.use_old_protocol:
+            self.service_uuid = SERVICE_UUID_OLD
+            self.write_uuid = WRITE_UUID_OLD
+            self.notify_uuid = NOTIFY_UUID_OLD
+            _LOGGER.info("Switched to OLD Protocol (FFF0/FFF2/FFF1)")
+        else:
+            self.service_uuid = SERVICE_UUID_NEW
+            self.write_uuid = WRITE_UUID_NEW
+            self.notify_uuid = NOTIFY_UUID_NEW
+            _LOGGER.info("Switched to NEW Protocol (FFE0/FFE1)")
+        
+        # Disconnect if connected to force reconnection with new UUIDs
+        if self.client and self.client.is_connected:
+            _LOGGER.info("Disconnecting to apply protocol change...")
+            # We can't await here easily in sync method, but the menu loop handles it
+            # Ideally we should just set a flag and let the user reconnect
 
     def parse_notification(self, data: bytearray):
         """
@@ -187,7 +213,7 @@ class HeaterCommander:
         # Step 1: Send Command 1, Mode 85 (AA 55 ...) with passkey
         cmd1 = build_command(1, 0, mode=0x55, passkey=passkey)
         _LOGGER.info(f"Handshake Step 1: {cmd1.hex()}")
-        await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd1)
+        await self.client.write_gatt_char(self.write_uuid, cmd1)
         
         # Wait for response - STRICT CHECK
         try:
@@ -223,7 +249,7 @@ class HeaterCommander:
         # Step 2: Send Command 1, Mode 136 (AA 88 ...)
         cmd2 = build_command(1, 0, mode=0x88, passkey=passkey)
         _LOGGER.info(f"Handshake Step 2: {cmd2.hex()}")
-        await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd2)
+        await self.client.write_gatt_char(self.write_uuid, cmd2)
         await asyncio.sleep(0.5)
         _LOGGER.info("Handshake complete.")
         return True
@@ -240,9 +266,9 @@ class HeaterCommander:
         
         try:
             # Start notifications first
-            _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
+            _LOGGER.info(f"Starting notifications on {self.notify_uuid}")
             try:
-                await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
+                await self.client.start_notify(self.notify_uuid, self.notification_handler)
             except Exception as e:
                 _LOGGER.warning(f"Could not start notify (might be already started): {e}")
 
@@ -285,7 +311,7 @@ class HeaterCommander:
             while not self.notification_queue.empty():
                 self.notification_queue.get_nowait()
                 
-            await self.client.write_gatt_char(COMMAND_WRITE_UUID, command)
+            await self.client.write_gatt_char(self.write_uuid, command)
             
             if expect_response:
                 _LOGGER.info("  Command sent. Waiting 5s for a notification...")
@@ -342,8 +368,9 @@ class HeaterCommander:
             print("\n--- Main Menu ---")
             status = "Connected" if self.client and self.client.is_connected else "Disconnected"
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
-            print(f"Status: {status} | {auth_status}")
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous)")
+            protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
+            print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -413,6 +440,8 @@ class HeaterCommander:
                 await self.send_command(cmd, "Power On (Forced)", expect_response=False, bypass_auth=True)
             elif choice == '9':
                 await self.monitor_status()
+            elif choice == '10':
+                self.toggle_protocol()
             else:
                 _LOGGER.warning("Invalid choice.")
 
