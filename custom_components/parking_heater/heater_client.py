@@ -50,12 +50,14 @@ class ParkingHeaterClient:
 
         try:
             _LOGGER.debug("Connecting to %s", self.mac_address)
-            self._client = await establish_connection(
-                BleakClient,
-                self.mac_address,
+            
+            # Create BleakClient directly
+            self._client = BleakClient(
                 self.mac_address,
                 disconnected_callback=self._on_disconnect,
             )
+            
+            await self._client.connect()
             
             # Subscribe to notifications
             await self._client.start_notify(NOTIFY_CHAR_UUID, self._notification_handler)
