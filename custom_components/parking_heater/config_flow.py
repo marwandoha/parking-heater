@@ -8,6 +8,8 @@ import voluptuous as vol
 from bleak import BleakScanner
 from bleak.backends.device import BLEDevice
 
+from .helpers.scan import async_ble_scan
+
 from homeassistant import config_entries
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
@@ -51,8 +53,11 @@ class ParkingHeaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
 
-        # Scan for Bluetooth devices
-        discovered_devices = await self._async_discover_devices()
+        # Scan for Bluetooth devices using helper (covers adapters)
+        discovered_devices = await async_ble_scan(timeout=8.0)
+
+        # Convert to BluetoothServiceInfo-like dict used below
+        # discovered_devices is address -> {name, rssi, uuids, address}
 
         if not discovered_devices:
             return self.async_show_form(
@@ -70,10 +75,11 @@ class ParkingHeaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         # Create a dropdown with discovered devices
-        device_options = {
-            mac: f"{info.name or 'Unknown'} ({mac})"
-            for mac, info in discovered_devices.items()
-        }
+        device_options = {}
+        for mac, info in discovered_devices.items():
+            name = info.get("name") if isinstance(info, dict) else getattr(info, "name", None)
+            display = f"{name or 'Unknown'} ({mac})"
+            device_options[mac] = display
 
         return self.async_show_form(
             step_id="user",
