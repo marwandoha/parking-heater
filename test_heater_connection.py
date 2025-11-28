@@ -363,27 +363,7 @@ class HeaterCommander:
         except Exception as e:
             _LOGGER.error(f"Scan failed: {e}")
 
-    async def monitor_status(self):
-        """Continuously polls for status."""
-        if not self.client or not self.client.is_connected:
-            _LOGGER.error("Not connected.")
-            return
-            
-        _LOGGER.info("Starting Status Monitor. Press Ctrl+C to stop.")
-        _LOGGER.info(f"Using passkey: '{PASSWORD}'")
-        
-        try:
-            while True:
-                cmd = build_command(1, 0, passkey=PASSWORD)
-                # We use bypass_auth=True to ensure it sends even if auth state is False
-                await self.send_command(cmd, "Get Status", expect_response=True, bypass_auth=True)
-                await asyncio.sleep(1.0)
-        except asyncio.CancelledError:
-            _LOGGER.info("Monitor stopped.")
-        except KeyboardInterrupt:
-            _LOGGER.info("Monitor stopped by user.")
-        except Exception as e:
-            _LOGGER.error(f"Monitor error: {e}")
+
 
     async def menu(self):
         """Display the interactive main menu."""
@@ -393,7 +373,7 @@ class HeaterCommander:
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
             protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
             print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics | 13. Monitor Status (Read Loop)")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -470,17 +450,19 @@ class HeaterCommander:
             elif choice == '12':
                 await self.test_characteristics()
             elif choice == '13':
-                await self.monitor_read_status()
+                await self.monitor_status()
             else:
                 _LOGGER.warning("Invalid choice.")
 
-    async def monitor_read_status(self):
+    async def monitor_status(self):
         """Continuously reads status from FFE1."""
         if not self.client or not self.client.is_connected:
             _LOGGER.error("Not connected.")
             return
             
         _LOGGER.info("Starting Status Monitor (Read Mode). Press Ctrl+C to stop.")
+        _LOGGER.info("Note: This bypasses the 'password error' notifications by reading directly.")
+        
         # Use the main write UUID (FFE1) for reading as well, as discovered
         target_uuid = self.write_uuid 
         
@@ -488,7 +470,6 @@ class HeaterCommander:
             while True:
                 try:
                     data = await self.client.read_gatt_char(target_uuid)
-                    # _LOGGER.info(f"[READ] {data.hex()}")
                     self.parse_notification(data)
                 except Exception as e:
                     _LOGGER.error(f"Read failed: {e}")
