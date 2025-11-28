@@ -33,11 +33,20 @@ scp test_heater_connection.py pi@your-pi-ip:~/
 # SSH into your Raspberry Pi
 ssh pi@your-pi-ip
 
-# Install bleak
-pip3 install bleak
+# Option A: Use system package (Recommended for Debian 12+)
+sudo apt update
+sudo apt install python3-bleak
 
-# Or if you need sudo:
-sudo pip3 install bleak
+# Option B: Use virtual environment (if system package not available)
+python3 -m venv ~/heater-test-env
+source ~/heater-test-env/bin/activate
+pip install bleak
+
+# Option C: Use pipx (if available)
+pipx install bleak
+
+# Option D: Override externally managed (not recommended but works)
+pip3 install bleak --break-system-packages
 ```
 
 ### 3. Edit Configuration (if needed)

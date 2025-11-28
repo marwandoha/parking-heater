@@ -18,8 +18,9 @@ nano test_heater.py
 # Paste the content (Ctrl+Shift+V or right-click)
 # Save and exit (Ctrl+X, Y, Enter)
 
-# Install bleak
-pip3 install bleak
+# Install bleak (choose ONE)
+sudo apt install -y python3-bleak
+# OR: pip3 install bleak --break-system-packages
 
 # Run test
 python3 test_heater.py
@@ -37,8 +38,9 @@ cd ~
 git clone https://github.com/marwandoha/parking-heater.git
 cd parking-heater
 
-# Install requirements
-pip3 install bleak
+# Install requirements (choose ONE)
+sudo apt install -y python3-bleak
+# OR: pip3 install bleak --break-system-packages
 
 # Run test
 python3 test_heater_connection.py
@@ -54,8 +56,9 @@ On your **Raspberry Pi**:
 # Download script
 wget https://raw.githubusercontent.com/marwandoha/parking-heater/main/test_heater_connection.py
 
-# Install bleak
-pip3 install bleak
+# Install bleak (choose ONE)
+sudo apt install -y python3-bleak
+# OR: pip3 install bleak --break-system-packages
 
 # Run test
 python3 test_heater_connection.py
