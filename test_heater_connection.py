@@ -109,7 +109,7 @@ class HeaterCommander:
             await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
             
             _LOGGER.info(f"Writing auth command to {COMMAND_WRITE_UUID}")
-            await self.client.write_gatt_char(COMMAND_WRITE_UUID, auth_cmd, response=False)
+            await self.client.write_gatt_char(COMMAND_WRITE_UUID, auth_cmd, response=True)
 
             _LOGGER.info("Waiting for initial notification to confirm auth...")
             response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
@@ -137,7 +137,7 @@ class HeaterCommander:
             while not self.notification_queue.empty():
                 self.notification_queue.get_nowait()
 
-            await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=False)
+            await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=True)
             
             _LOGGER.info("  Command sent. Waiting 5s for a notification...")
             response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
