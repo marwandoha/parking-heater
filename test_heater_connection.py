@@ -174,21 +174,54 @@ class HeaterCommander:
         self.client = None
         self.is_authenticated = False
 
-    async def handshake(self):
-        """Performs the initialization handshake."""
-        _LOGGER.info("Performing handshake...")
-        # Step 1: Send Command 1, Mode 85 (AA 55 ...)
-        cmd1 = build_command(1, 0, mode=0x55)
+    async def handshake(self, passkey: str) -> bool:
+        """
+        Performs the initialization handshake with a specific passkey.
+        Returns True if successful (no error response), False otherwise.
+        """
+        _LOGGER.info(f"Performing handshake with passkey '{passkey}'...")
+        
+        # Clear queue
+        while not self.notification_queue.empty():
+            self.notification_queue.get_nowait()
+
+        # Step 1: Send Command 1, Mode 85 (AA 55 ...) with passkey
+        cmd1 = build_command(1, 0, mode=0x55, passkey=passkey)
         _LOGGER.info(f"Handshake Step 1: {cmd1.hex()}")
         await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd1)
-        await asyncio.sleep(0.5)
+        
+        # Wait for potential error response
+        try:
+            response = await asyncio.wait_for(self.notification_queue.get(), timeout=2.0)
+            # Check for "password" error (da header or ascii decode)
+            if len(response) > 0 and response[0] == 0xDA:
+                 _LOGGER.warning(f"Passkey '{passkey}' rejected (Header DA).")
+                 return False
+            
+            # Try decoding as ASCII just in case
+            try:
+                ascii_msg = response.decode('ascii', errors='ignore')
+                if "password" in ascii_msg.lower() or "sword" in ascii_msg.lower():
+                    _LOGGER.warning(f"Passkey '{passkey}' rejected (ASCII match).")
+                    return False
+            except:
+                pass
+            
+            # If we got a normal status response (AA 55), it's a success!
+            if len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
+                _LOGGER.info("Handshake Step 1 accepted (Status received).")
+                # We don't strictly need to return here, we can continue to step 2
+        except asyncio.TimeoutError:
+            # No response might mean success (silent acceptance) or just slow
+            _LOGGER.info("No immediate response to Step 1. Assuming success or silent failure.")
 
         # Step 2: Send Command 1, Mode 136 (AA 88 ...)
-        cmd2 = build_command(1, 0, mode=0x88)
+        cmd2 = build_command(1, 0, mode=0x88, passkey=passkey)
         _LOGGER.info(f"Handshake Step 2: {cmd2.hex()}")
         await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd2)
         await asyncio.sleep(0.5)
         _LOGGER.info("Handshake complete.")
+        return True
 
     async def authenticate(self):
         if not self.client or not self.client.is_connected:
@@ -198,18 +231,29 @@ class HeaterCommander:
             _LOGGER.info("Already authenticated.")
             return
 
-        _LOGGER.info("Attempting authentication with handshake...")
+        _LOGGER.info("Attempting authentication...")
         
         try:
             # Start notifications first
             _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
             await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
 
-            # Perform Handshake
-            await self.handshake()
+            # Try common passwords
+            passwords = ["1234", "0000", "1111", "8888", "9999", "1688", "54321"]
+            
+            for pk in passwords:
+                if await self.handshake(pk):
+                    _LOGGER.info(f"✅ Authentication Successful with passkey '{pk}'!")
+                    self.is_authenticated = True
+                    # Update global password for future commands
+                    global PASSWORD
+                    PASSWORD = pk
+                    return
+                _LOGGER.warning(f"Authentication failed with passkey '{pk}'. Retrying...")
+                await asyncio.sleep(1.0)
 
-            self.is_authenticated = True
-            _LOGGER.info("✅ Authentication/Handshake Successful! Notification channel is open.")
+            _LOGGER.error("❌ All passwords failed.")
+            self.is_authenticated = False
 
         except Exception as e:
             _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
