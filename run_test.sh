@@ -2,7 +2,7 @@
 
 # Disconnect heater if connected
 echo "Disconnecting heater if connected..."
-bluetoothctl disconnect E0:4E:7A:AD:E8:EE 2>/dev/null
+bluetoothctl disconnect E0:4E:7A:AD:EA:5D 2>/dev/null
 sleep 2
 
 # Run the test and save output
