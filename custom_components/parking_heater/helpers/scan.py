@@ -35,7 +35,7 @@ async def async_ble_scan(timeout: float = 8.0) -> Dict[str, Dict[str, Any]]:
             pass
         return {}
 
-    for d in await scanner.get_discovered_devices():
+    for d in scanner.discovered_devices:
         # bleak BLEDevice
         try:
             uuids = []
