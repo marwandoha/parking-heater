@@ -335,6 +335,17 @@ class HeaterCommander:
                 cmd_choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
                 cmd, name = None, None
                 
+                # Check auth and ask for bypass if needed
+                bypass = False
+                if not self.is_authenticated:
+                    print("⚠️  Not authenticated.")
+                    force = await asyncio.get_event_loop().run_in_executor(None, input, "Force command anyway? (y/n): ")
+                    if force.lower() == 'y':
+                        bypass = True
+                    else:
+                        print("Command cancelled.")
+                        continue
+
                 # Build commands dynamically to use the authenticated PASSWORD
                 if cmd_choice == '1': 
                     cmd = build_command(3, 1, passkey=PASSWORD)
@@ -347,10 +358,10 @@ class HeaterCommander:
                     name = "Get Status"
                 
                 if cmd:
-                    if name == "Power On":
-                        await self.send_command(cmd, name, expect_response=False)
-                    else:
-                        await self.send_command(cmd, name)
+                    # For Power On, we might not expect a response if it's just a write
+                    # But for Get Status, we definitely want to see what comes back
+                    expect_resp = False if name == "Power On" else True
+                    await self.send_command(cmd, name, expect_response=expect_resp, bypass_auth=bypass)
             elif choice == '4':
                 await self.disconnect()
             elif choice == '5':
