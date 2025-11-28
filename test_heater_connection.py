@@ -18,18 +18,35 @@ PASSWORD = "1234"
 SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb"
 # All known characteristics
 CHAR_UUIDS = {
-    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # Auth Write
-    "ffe3": "0000ffe3-0000-1000-8000-00805f9b34fb",  # Possible Command Write?
+    "ffe1": "0000ffe1-0000-1000-8000-00805f9b34fb",  # Auth and Command Write
     "ffe4": "0000ffe4-0000-1000-8000-00805f9b34fb",  # Notification
 }
 # Discovered correct UUIDs for auth
-AUTH_WRITE_UUID = CHAR_UUIDS["ffe1"]
+COMMAND_WRITE_UUID = CHAR_UUIDS["ffe1"]
 NOTIFY_UUID = CHAR_UUIDS["ffe4"]
 
+# --- Command Builder ---
+def build_command(command: int, data: int, passkey: str = "1234") -> bytearray:
+    """Builds the command payload based on reverse-engineered protocol."""
+    payload = bytearray(8)
+    payload[0] = 0xAA
+    payload[1] = 0x55
+    payload[2] = int(passkey) // 100
+    payload[3] = int(passkey) % 100
+    payload[4] = command
+    payload[5] = data & 0xFF
+    payload[6] = (data >> 8) & 0xFF
+    
+    checksum = sum(payload[2:7])
+    payload[7] = checksum & 0xFF
+    
+    return payload
+
 # --- Predefined Commands ---
-CMD_POWER_ON = bytes.fromhex("76160101000000008e")
-CMD_POWER_OFF = bytes.fromhex("76160100000000008d")
-CMD_GET_STATUS = bytes.fromhex("76170100000000008e")
+CMD_POWER_ON = build_command(3, 1, PASSWORD)
+CMD_POWER_OFF = build_command(3, 0, PASSWORD)
+CMD_GET_STATUS = build_command(1, 0, PASSWORD)
+
 
 # --- Setup Logging ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -83,65 +100,56 @@ class HeaterCommander:
             _LOGGER.error("Not connected. Please connect first.")
             return
 
-        _LOGGER.info("Attempting authentication with the known correct method...")
-        password_cmd = PASSWORD.encode('ascii')
+        _LOGGER.info("Attempting authentication...")
+        
+        auth_cmd = build_command(1, 0, PASSWORD)
 
         try:
-            _LOGGER.info(f"Writing '{PASSWORD}' to {AUTH_WRITE_UUID}")
-            await self.client.write_gatt_char(AUTH_WRITE_UUID, password_cmd, response=True)
-
             _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
             await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
             
+            _LOGGER.info(f"Writing auth command to {COMMAND_WRITE_UUID}")
+            await self.client.write_gatt_char(COMMAND_WRITE_UUID, auth_cmd, response=False)
+
+            _LOGGER.info("Waiting for initial notification to confirm auth...")
+            response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
+
             self.is_authenticated = True
-            _LOGGER.info("✅ Authentication Successful! Notification channel is open.")
+            _LOGGER.info(f"✅ Authentication Successful! Initial response: {response.hex()}")
 
         except Exception as e:
             _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
             self.is_authenticated = False
 
-    async def send_command_exploratory(self, base_cmd: bytes, cmd_name: str):
+    async def send_command(self, cmd: bytes, cmd_name: str):
         """
-        Send a command by exploring different write UUIDs and padding lengths.
+        Send a command to the heater.
         """
         if not self.is_authenticated:
             _LOGGER.warning("Not authenticated. Please authenticate first.")
             return
 
-        _LOGGER.info(f"\n>>> Starting exploratory send for command: {cmd_name} <<<")
+        _LOGGER.info(f"\n>>> Sending command: {cmd_name} <<<")
+        _LOGGER.info(f"  Payload: {cmd.hex()}")
 
-        write_uuids_to_try = [CHAR_UUIDS["ffe1"], CHAR_UUIDS["ffe3"]]
-        padding_lengths_to_try = [None, 8, 16, 20] # None = no padding
+        try:
+            # Clear notification queue before sending
+            while not self.notification_queue.empty():
+                self.notification_queue.get_nowait()
 
-        for write_uuid in write_uuids_to_try:
-            for length in padding_lengths_to_try:
-                cmd = base_cmd if length is None else base_cmd.ljust(length, b'\x00')
+            await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=False)
+            
+            _LOGGER.info("  Command sent. Waiting 5s for a notification...")
+            response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
+            
+            _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
 
-                _LOGGER.info(f"--- Testing Write UUID: {write_uuid}, Length: {length or 'raw'} ---")
-                _LOGGER.info(f"  Payload: {cmd.hex()}")
-
-                try:
-                    # Clear notification queue before sending
-                    while not self.notification_queue.empty():
-                        self.notification_queue.get_nowait()
-
-                    await self.client.write_gatt_char(write_uuid, cmd, response=False)
-                    
-                    _LOGGER.info("  Command sent. Waiting 5s for a notification...")
-                    response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
-                    
-                    _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
-                    _LOGGER.info(f"  Correct combination for '{cmd_name}' is likely: Write UUID={write_uuid}, Length={length}")
-                    return # Stop on first success
-
-                except asyncio.TimeoutError:
-                    _LOGGER.warning("  No notification received.")
-                except BleakError as e:
-                    _LOGGER.error(f"  BLEAK ERROR: {e}")
-                    if "Invalid Length" in str(e):
-                        _LOGGER.warning("  --> Rejected by bluetoothd. Incorrect length for this characteristic.")
-                except Exception as e:
-                    _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
+        except asyncio.TimeoutError:
+            _LOGGER.warning("  No notification received.")
+        except BleakError as e:
+            _LOGGER.error(f"  BLEAK ERROR: {e}")
+        except Exception as e:
+            _LOGGER.error(f"  UNEXPECTED ERROR: {e}", exc_info=True)
 
     async def menu(self):
         """Display the interactive main menu."""
@@ -150,7 +158,7 @@ class HeaterCommander:
             status = f"Status: {'Connected' if self.client and self.client.is_connected else 'Disconnected'}"
             status += f" | {'Authenticated' if self.is_authenticated else 'Not Authenticated'}"
             print(status)
-            print("1. Connect | 2. Authenticate | 3. Send Command (Exploratory) | 4. Disconnect | 5. Exit")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Exit")
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
 
             if choice == '1':
@@ -167,7 +175,7 @@ class HeaterCommander:
                 elif cmd_choice == '3': cmd, name = CMD_GET_STATUS, "Get Status"
                 
                 if cmd:
-                    await self.send_command_exploratory(cmd, name)
+                    await self.send_command(cmd, name)
             elif choice == '4':
                 await self.disconnect()
             elif choice == '5':
