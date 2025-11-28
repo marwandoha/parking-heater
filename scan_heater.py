@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 _LOGGER = logging.getLogger(__name__)
 
-HEATER_MAC = "E0:4E:7A:AD:EA:5D"
+HEATER_MAC = "E0:4E:7A:AD:E8:EE"
 BLUETOOTH_ADAPTER = "hci1"
 
 
