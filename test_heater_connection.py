@@ -108,8 +108,7 @@ class HeaterCommander:
             _LOGGER.warning("Not authenticated. Please authenticate first.")
             return
 
-        _LOGGER.info(f"\n>>> Starting exploratory send for command: {cmd_name} <<<
-")
+        _LOGGER.info(f"\n>>> Starting exploratory send for command: {cmd_name} <<<")
 
         write_uuids_to_try = [CHAR_UUIDS["ffe1"], CHAR_UUIDS["ffe3"]]
         padding_lengths_to_try = [None, 8, 16, 20] # None = no padding
