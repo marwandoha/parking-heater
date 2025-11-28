@@ -7,4 +7,4 @@ sleep 2
 
 # Run the test and save output
 echo "Running connection test..."
-python3 test_heater_connection.py 2>&1 | tee test_output.log
+python3 test_heater_connection_working_copy.py 2>&1 | tee test_output_working_copy.log
