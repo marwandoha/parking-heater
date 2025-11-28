@@ -176,7 +176,7 @@ class HeaterCommander:
     async def handshake(self, passkey: str) -> bool:
         """
         Performs the initialization handshake with a specific passkey.
-        Returns True if successful (no error response), False otherwise.
+        Returns True ONLY if successful (AA 55 received), False otherwise.
         """
         _LOGGER.info(f"Performing handshake with passkey '{passkey}'...")
         
@@ -189,9 +189,10 @@ class HeaterCommander:
         _LOGGER.info(f"Handshake Step 1: {cmd1.hex()}")
         await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd1)
         
-        # Wait for potential error response
+        # Wait for response - STRICT CHECK
         try:
-            response = await asyncio.wait_for(self.notification_queue.get(), timeout=2.0)
+            response = await asyncio.wait_for(self.notification_queue.get(), timeout=3.0)
+            
             # Check for "password" error (da header or ascii decode)
             if len(response) > 0 and response[0] == 0xDA:
                  _LOGGER.warning(f"Passkey '{passkey}' rejected (Header DA).")
@@ -206,13 +207,18 @@ class HeaterCommander:
             except:
                 pass
             
-            # If we got a normal status response (AA 55), it's a success!
+            # Check for success response (AA 55)
             if len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
-                _LOGGER.info("Handshake Step 1 accepted (Status received).")
-                # We don't strictly need to return here, we can continue to step 2
+                _LOGGER.info("Handshake Step 1 accepted (Status AA 55 received).")
+                # Proceed to Step 2
+            else:
+                _LOGGER.warning(f"Unexpected response: {response.hex()}. Treating as failure.")
+                return False
+
         except asyncio.TimeoutError:
-            # No response might mean success (silent acceptance) or just slow
-            _LOGGER.info("No immediate response to Step 1. Assuming success or silent failure.")
+            # No response means failure in strict mode
+            _LOGGER.warning("No response to Step 1. Treating as failure (Strict Mode).")
+            return False
 
         # Step 2: Send Command 1, Mode 136 (AA 88 ...)
         cmd2 = build_command(1, 0, mode=0x88, passkey=passkey)
@@ -235,10 +241,13 @@ class HeaterCommander:
         try:
             # Start notifications first
             _LOGGER.info(f"Starting notifications on {NOTIFY_UUID}")
-            await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
+            try:
+                await self.client.start_notify(NOTIFY_UUID, self.notification_handler)
+            except Exception as e:
+                _LOGGER.warning(f"Could not start notify (might be already started): {e}")
 
             # Try common passwords
-            passwords = ["1234", "0000", "1111", "8888", "9999", "1688", "54321"]
+            passwords = ["1234", "0000", "1111", "8888", "9999", "1688", "54321", "6666", "123456", "654321"]
             
             for pk in passwords:
                 if await self.handshake(pk):
