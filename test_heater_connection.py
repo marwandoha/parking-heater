@@ -117,7 +117,7 @@ class HeaterCommander:
             _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
             self.is_authenticated = False
 
-    async def send_command(self, cmd: bytes, cmd_name: str):
+    async def send_command(self, cmd: bytes, cmd_name: str, expect_response: bool = True):
         """
         Send a command to the heater.
         """
@@ -135,10 +135,13 @@ class HeaterCommander:
 
             await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=True)
             
-            _LOGGER.info("  Command sent. Waiting 5s for a notification...")
-            response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
-            
-            _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
+            if expect_response:
+                _LOGGER.info("  Command sent. Waiting 5s for a notification...")
+                response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
+                _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
+            else:
+                _LOGGER.info("  Command sent. No notification expected.")
+                _LOGGER.info(f"  ✅ SUCCESS! Command '{cmd_name}' sent successfully.")
 
         except asyncio.TimeoutError:
             _LOGGER.warning("  No notification received.")
@@ -171,7 +174,10 @@ class HeaterCommander:
                 elif cmd_choice == '3': cmd, name = CMD_GET_STATUS, "Get Status"
                 
                 if cmd:
-                    await self.send_command(cmd, name)
+                    if name == "Power On":
+                        await self.send_command(cmd, name, expect_response=False)
+                    else:
+                        await self.send_command(cmd, name)
             elif choice == '4':
                 await self.disconnect()
             elif choice == '5':
