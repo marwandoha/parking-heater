@@ -5,6 +5,6 @@ echo "Disconnecting heater if connected..."
 bluetoothctl disconnect E0:4E:7A:AD:E8:EE 2>/dev/null
 sleep 2
 
-# Run the test
+# Run the test and save output
 echo "Running connection test..."
-python3 test_heater_connection.py
+python3 test_heater_connection.py 2>&1 | tee test_output.log
