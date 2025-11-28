@@ -267,23 +267,25 @@ class HeaterCommander:
             _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
             self.is_authenticated = False
 
-    async def send_command(self, cmd: bytes, cmd_name: str, expect_response: bool = True):
-        """
-        Send a command to the heater.
-        """
-        if not self.is_authenticated:
+    async def send_command(self, command: bytearray, command_name: str, expect_response: bool = True, bypass_auth: bool = False):
+        """Sends a command to the heater."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected.")
+            return
+
+        if not self.is_authenticated and not bypass_auth:
             _LOGGER.warning("Not authenticated. Please authenticate first.")
             return
 
-        _LOGGER.info(f"\n>>> Sending command: {cmd_name} <<<")
-        _LOGGER.info(f"  Payload: {cmd.hex()}")
-
+        _LOGGER.info(f"\n>>> Sending command: {command_name} <<<")
+        _LOGGER.info(f"  Payload: {command.hex()}")
+        
         try:
-            # Clear notification queue before sending
+            # Clear queue before sending
             while not self.notification_queue.empty():
                 self.notification_queue.get_nowait()
-
-            await self.client.write_gatt_char(COMMAND_WRITE_UUID, cmd, response=True)
+                
+            await self.client.write_gatt_char(COMMAND_WRITE_UUID, command)
             
             if expect_response:
                 _LOGGER.info("  Command sent. Waiting 5s for a notification...")
@@ -291,10 +293,10 @@ class HeaterCommander:
                     response = await asyncio.wait_for(self.notification_queue.get(), timeout=5.0)
                     _LOGGER.info(f"  ✅ SUCCESS! Received response: {response.hex()}")
                 except asyncio.TimeoutError:
-                     _LOGGER.warning("  No notification received within 5s.")
+                    _LOGGER.warning("  No notification received within 5s.")
             else:
-                _LOGGER.info("  Command sent. No notification expected.")
-                _LOGGER.info(f"  ✅ SUCCESS! Command '{cmd_name}' sent successfully.")
+                _LOGGER.info("  Command sent (no response expected).")
+                _LOGGER.info(f"  ✅ SUCCESS! Command '{command_name}' sent successfully.")
 
         except BleakError as e:
             _LOGGER.error(f"  BLEAK ERROR: {e}")
@@ -363,7 +365,7 @@ class HeaterCommander:
                 # Force Turn On using current PASSWORD (default 1234 if not set)
                 _LOGGER.info(f"Forcing Turn On with passkey '{PASSWORD}'...")
                 cmd = build_command(3, 1, passkey=PASSWORD)
-                await self.send_command(cmd, "Power On (Forced)", expect_response=False)
+                await self.send_command(cmd, "Power On (Forced)", expect_response=False, bypass_auth=True)
             else:
                 _LOGGER.warning("Invalid choice.")
 
