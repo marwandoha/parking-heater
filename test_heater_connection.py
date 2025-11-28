@@ -136,38 +136,38 @@ class HeaterTester:
         
         try:
             await self.client.start_notify(self.notify_uuid, self.notification_handler)
-
-            for i, cmd in enumerate(password_commands):
-                if not self.client.is_connected:
-                    _LOGGER.error("[ERROR] Device disconnected during authentication attempts. Aborting.")
-                    self.is_authenticated = False
-                    break
-
-                _LOGGER.info(f"  [KEY] Trying password format #{i+1}: {cmd.hex()}")
-                self.notification_received.clear()
-                
-                try:
-                    await self.client.write_gatt_char(self.write_uuid, cmd, response=False)
-                    await asyncio.wait_for(self.notification_received.wait(), timeout=3.0)
-                    
-                    _LOGGER.info(f"  [OK] Got response for format #{i+1}! Authentication likely successful.")
-                    self.is_authenticated = True
-                    break 
-                
-                except asyncio.TimeoutError:
-                    _LOGGER.warning(f"  [TIMEOUT] No response for format #{i+1}.")
-                except Exception:
-                    _LOGGER.error(f"  [ERROR] Error on format #{i+1}. The device may have disconnected.")
-                    break 
-
-            await self.client.stop_notify(self.notify_uuid)
-            
-            if not self.is_authenticated:
-                _LOGGER.error("[ERROR] Authentication failed. None of the password formats received a response.")
-
         except Exception as e:
-            _LOGGER.error(f"[ERROR] A critical error occurred during notification setup: {e}", exc_info=True)
-            self.is_authenticated = False
+            _LOGGER.error(f"[ERROR] Could not start notifications on {self.notify_uuid}. Aborting authentication.", exc_info=True)
+            return
+
+        for i, cmd in enumerate(password_commands):
+            if not self.client.is_connected:
+                _LOGGER.error("[ERROR] Device disconnected during authentication attempts. Aborting.")
+                self.is_authenticated = False
+                break
+
+            _LOGGER.info(f"  [KEY] Trying password format #{i+1}: {cmd.hex()}")
+            self.notification_received.clear()
+            
+            try:
+                await self.client.write_gatt_char(self.write_uuid, cmd, response=False)
+                await asyncio.wait_for(self.notification_received.wait(), timeout=3.0)
+                
+                _LOGGER.info(f"  [OK] Got response for format #{i+1}! Authentication likely successful.")
+                self.is_authenticated = True
+                break
+            
+            except asyncio.TimeoutError:
+                _LOGGER.warning(f"  [TIMEOUT] No response for format #{i+1}.")
+            except BleakError as e:
+                _LOGGER.error(f"  [ERROR] Bleak error on format #{i+1}: {e}. The device may have disconnected.", exc_info=True)
+                break 
+
+        if self.client.is_connected:
+            await self.client.stop_notify(self.notify_uuid)
+        
+        if not self.is_authenticated:
+            _LOGGER.error("[ERROR] Authentication failed. None of the password formats that were tried received a response.")
 
 
     async def _send_and_wait(self, cmd: bytes):
