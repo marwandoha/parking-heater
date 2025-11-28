@@ -120,24 +120,18 @@ class HeaterTester:
     async def authenticate(self):
         """
         Cycles through password formats to authenticate.
-        This process is robust to disconnections, reconnecting if necessary.
+        This version PADS commands to a fixed length of 20 bytes.
         """
         if self.is_authenticated:
             _LOGGER.info("[AUTH] Already authenticated.")
             return
 
-        _LOGGER.info("[AUTH] Starting authentication test...")
+        _LOGGER.info("[AUTH] Starting authentication test (with padding)...")
 
         # --- Define password formats to try ---
         password_bytes = PASSWORD.encode('ascii')
-        
-        # Core of a potential command: <command_id> <length> <payload>
         core_command = b'\x10' + len(password_bytes).to_bytes(1, 'big') + password_bytes
-        
-        # Calculate SUM checksum (sum of core command bytes)
         checksum_sum = sum(core_command) & 0xFF
-        
-        # Calculate XOR checksum (XOR of core command bytes)
         checksum_xor = 0
         for byte in core_command:
             checksum_xor ^= byte
@@ -148,9 +142,18 @@ class HeaterTester:
             "Command (SUM checksum)": b'\x76' + core_command + checksum_sum.to_bytes(1, 'big'),
             "Command (XOR checksum)": b'\x76' + core_command + checksum_xor.to_bytes(1, 'big'),
         }
+        
+        # --- Pad commands to address 'Invalid Length' error ---
+        # A fixed length of 20 bytes is a common requirement for BLE characteristics.
+        padded_commands = {}
+        for name, cmd in password_commands.items():
+            if "ASCII" in name:
+                padded_commands[name] = cmd  # Don't pad the raw ASCII test
+            else:
+                padded_commands[f"{name} (Padded)"] = cmd.ljust(20, b'\x00')
         # --- End of formats ---
 
-        for name, cmd in password_commands.items():
+        for name, cmd in padded_commands.items():
             if self.is_authenticated:
                 break
 
