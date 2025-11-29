@@ -328,7 +328,7 @@ class HeaterCommander:
             self.is_authenticated = False
 
     async def brute_force_password(self):
-        """Try all passwords from 0000 to 9999."""
+        """Try all passwords from 0000 to 9999 using the Raw Command structure."""
         # Ask for start index
         start_input = await asyncio.get_event_loop().run_in_executor(None, input, "Start from (default 0000): ")
         start_index = int(start_input) if start_input.strip() else 0
@@ -352,15 +352,28 @@ class HeaterCommander:
         start_time = time.time()
         
         for i in range(start_index, 10000):
-            passkey = f"{i:04d}"
+            passkey_int = i
+            passkey_str = f"{i:04d}"
+            
+            # Encode as Decimal (like reference project)
+            # 1234 -> 12 34 (0C 22)
+            byte_h = (passkey_int // 100) & 0xFF
+            byte_l = passkey_int % 100
+            
+            # Build Raw Command: AA 55 [ID_H] [ID_L] 01 00 00 [CS]
+            # Command 01 = Status? (Reference uses 01)
+            cmd = bytearray([0xAA, 0x55, byte_h, byte_l, 0x01, 0x00, 0x00, 0x00])
+            
+            # Checksum: Sum of bytes 2-6 (ID_H + ID_L + 01 + 00 + 00)
+            checksum = sum(cmd[2:7]) & 0xFF
+            cmd[7] = checksum
             
             # Print progress every 10 attempts
             if i % 10 == 0:
                 elapsed = time.time() - start_time
                 rate = (i - start_index) / elapsed if elapsed > 0 else 0
-                _LOGGER.info(f"Trying {passkey}... (Rate: {rate:.1f} pw/s)")
+                _LOGGER.info(f"Trying {passkey_str} ({cmd.hex()})... (Rate: {rate:.1f} pw/s)")
 
-            cmd = build_command(1, 0, passkey=passkey)
             try:
                 # Use response=False for speed
                 await self.client.write_gatt_char(self.write_uuid, cmd, response=False)
@@ -369,16 +382,24 @@ class HeaterCommander:
                 try:
                     response = await asyncio.wait_for(self.notification_queue.get(), timeout=0.1)
                     
-                    if len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
-                        _LOGGER.info(f"✅ FOUND PASSWORD: {passkey}")
+                    if len(response) > 0 and response[0] == 0xDA:
+                        pass # Password error (Expected for wrong password)
+                    elif len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
+                        _LOGGER.info(f"✅ FOUND PASSWORD: {passkey_str}")
                         global PASSWORD
-                        PASSWORD = passkey
+                        PASSWORD = passkey_str
                         self.is_authenticated = True
                         return
-                    elif len(response) > 0 and response[0] == 0xDA:
-                        pass # Password error
                     else:
-                        _LOGGER.info(f"❓ Unknown response for {passkey}: {response.hex()}")
+                        # Any other response might be interesting (e.g., status data)
+                        _LOGGER.info(f"❓ INTERESTING RESPONSE for {passkey_str}: {response.hex()}")
+                        # If it looks like status data (13 bytes), we probably found it
+                        if len(response) == 13:
+                             _LOGGER.info(f"✅ FOUND PASSWORD (Status Received): {passkey_str}")
+                             global PASSWORD
+                             PASSWORD = passkey_str
+                             self.is_authenticated = True
+                             return
                         
                 except asyncio.TimeoutError:
                     pass
@@ -388,17 +409,14 @@ class HeaterCommander:
                 _LOGGER.info("Attempting to reconnect...")
                 try:
                     await self.connect()
-                    await asyncio.sleep(2.0) # Wait for connection to settle
-                    # Re-enable notifications
+                    await asyncio.sleep(2.0)
                     await self.client.start_notify(self.notify_uuid, self.notification_handler)
-                    # Retry this password
                     i -= 1 
                     continue
                 except Exception as reconnect_error:
                     _LOGGER.error(f"Reconnection failed: {reconnect_error}")
                     break
                 
-            # Slightly increased delay for stability
             await asyncio.sleep(0.02)
 
         _LOGGER.info("Brute force complete. No password found.")
