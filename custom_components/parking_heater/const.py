@@ -1,5 +1,6 @@
 """Constants for the Parking Heater integration."""
 from typing import Final
+from datetime import timedelta
 
 DOMAIN: Final = "parking_heater"
 
