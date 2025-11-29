@@ -249,7 +249,11 @@ class ParkingHeaterClient:
         # Turn On: 03 01 00
         # Turn Off: 03 00 00
         command = self._build_command(0x03, 0x01 if power_on else 0x00)
-        await self._send_command(command, wait_for_response=False)
+        
+        # We wait for response to ensure the command is processed
+        # The heater sends a specific response packet starting with AA 55 03 ...
+        await self._send_command(command, wait_for_response=True)
+        await asyncio.sleep(0.5) # Give it a moment
         _LOGGER.info("Set power to %s", "ON" if power_on else "OFF")
 
     async def set_mode(self, mode: int) -> None:
