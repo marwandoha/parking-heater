@@ -324,8 +324,8 @@ class ParkingHeaterClient:
             status = {
                 "is_on": is_on,
                 "run_state": run_state,
-                "target_temperature": target_value if target_value > 10 else MIN_TEMP, 
-                "target_level": target_value if target_value <= 10 else 1, # Add target_level
+                "target_temperature": target_temp, 
+                "target_level": target_level, # Add target_level
                 "current_temperature": chamber_temp, # Swapped: Bytes 32-33 (Room)
                 "chamber_temperature": case_temp,    # Swapped: Bytes 13-14 (Chamber)
                 "fan_speed": 1, # Placeholder
