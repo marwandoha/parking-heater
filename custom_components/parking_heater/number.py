@@ -51,7 +51,9 @@ class ParkingHeaterLevelNumber(CoordinatorEntity[ParkingHeaterCoordinator], Numb
 
         """Return the current value."""
         if self.coordinator.data:
-            return self.coordinator.data.get("target_level", 1)
+            val = self.coordinator.data.get("target_level", 1)
+            # _LOGGER.debug("ParkingHeaterLevelNumber: native_value = %s (data keys: %s)", val, self.coordinator.data.keys())
+            return val
         return None 
 
     async def async_set_native_value(self, value: float) -> None:

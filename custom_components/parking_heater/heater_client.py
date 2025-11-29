@@ -39,6 +39,9 @@ class ParkingHeaterClient:
         # Command Queue
         self._command_queue: asyncio.Queue = asyncio.Queue()
         self._command_worker_task: asyncio.Task | None = None
+        
+        # Local State Tracking (Fallback)
+        self._last_set_level: int | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -311,6 +314,21 @@ class ParkingHeaterClient:
             # Clamp level 1-10
             target_level = max(1, min(10, target_level))
             
+            # Local Tracking Override/Fallback
+            # If the heater reports 1 (default) but we set it to something else recently, prefer our local value.
+            # This handles heaters that don't report back the target level.
+            if self._last_set_level is not None:
+                # If reported level is 1 (common default) and we have a different local value, use local.
+                # Or if we just want to trust local more?
+                # Let's trust local if reported is 1, or if we want to be very aggressive.
+                # For now, let's just log it and use local if reported is 1.
+                if target_level == 1 and self._last_set_level != 1:
+                     _LOGGER.debug("Using local level %d instead of reported 1", self._last_set_level)
+                     target_level = self._last_set_level
+                # Also update local state if reported state changes to something valid
+                elif target_level != 1:
+                     self._last_set_level = target_level
+            
             case_temp = response[14] + (response[13] << 8)
             if case_temp > 32767: case_temp -= 65536
             
@@ -416,6 +434,7 @@ class ParkingHeaterClient:
                 await self._send_command(command, wait_for_response=True)
                 await asyncio.sleep(0.5)
                 _LOGGER.info("Set level to %d (Attempt %d)", level, attempt + 1)
+                self._last_set_level = level # Update local state
                 return
             except Exception as e:
                 _LOGGER.warning("Set level failed (Attempt %d): %s", attempt + 1, e)
