@@ -135,30 +135,37 @@ class HeaterCommander:
                     _LOGGER.info("Decryption Successful! Valid AA 55 packet found.")
                     data = decrypted # Proceed with decrypted data
                     
-                    # Parse Decrypted Data (Encrypted Protocol)
-                    # Based on esphome: HEATER_AA_55_ENCRYPTED
-                    if len(data) >= 20:
-                        run_state = data[3]
-                        err_code = data[4]
-                        run_step = data[5]
-                        # altitude = (data[7] + (data[6] << 8)) / 10
-                        # run_mode = data[8]
-                        # set_temp = data[9]
-                        # set_level = data[10]
-                        voltage = (data[12] + (data[11] << 8)) / 10.0
-                        case_temp = (data[14] + (data[13] << 8))
-                        # cab_temp = (data[33] + (data[32] << 8)) / 10.0 if len(data) > 33 else 0
-                        
-                        # Sign extension for temps (16-bit signed)
-                        if case_temp > 32767: case_temp -= 65536
-                        
-                        _LOGGER.info(f"--- HEATER STATUS (Decrypted) ---")
-                        _LOGGER.info(f"  State:       {run_state} (0=Off, 1=On, 2=Ignition, 3=Heating, 4=Shutdown)")
-                        _LOGGER.info(f"  Error:       {err_code}")
-                        _LOGGER.info(f"  Voltage:     {voltage:.1f}V")
-                        _LOGGER.info(f"  Case Temp:   {case_temp}°C")
-                        _LOGGER.info(f"---------------------------------")
-                        return
+                    # Parse Status
+                    run_state = data[3]
+                    run_state_str = {
+                        0: "OFF",
+                        1: "ON (Startup?)",
+                        2: "IGNITION",
+                        3: "HEATING",
+                        4: "SHUTDOWN/COOLING",
+                        5: "STANDBY"
+                    }.get(run_state, f"UNKNOWN ({run_state})")
+                    
+                    error_code = data[4]
+                    
+                    # Voltage (Bytes 11-12, Little Endian)
+                    voltage = (data[12] + (data[11] << 8)) / 10.0
+                    
+                    # Case Temp (Bytes 13-14, Little Endian)
+                    case_temp = data[14] + (data[13] << 8)
+                    if case_temp > 32767: case_temp -= 65536
+                    
+                    # Chamber Temp (Bytes 32-33, Little Endian) - check length first
+                    chamber_temp = "N/A"
+                    if len(data) >= 34:
+                        ct = data[33] + (data[32] << 8)
+                        if ct > 32767: ct -= 65536
+                        # chamber_temp = f"{ct/10.0} C" # Assuming scaled by 10 like voltage? Or raw?
+                        # Wait, case_temp was raw. Let's print raw first.
+                        chamber_temp = f"{ct} (Raw) / {ct/10.0} (Scaled?)"
+
+                    _LOGGER.info(f"\n--- STATUS UPDATE ---\nState: {run_state_str}\nError: {error_code}\nVoltage: {voltage}V\nCase Temp (Room): {case_temp}C\nChamber Temp: {chamber_temp}\n---------------------")
+                    return
                 else:
                     _LOGGER.warning("Decrypted data does not start with AA 55.")
             except Exception as e:
