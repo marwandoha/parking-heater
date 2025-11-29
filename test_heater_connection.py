@@ -355,16 +355,17 @@ class HeaterCommander:
             passkey_int = i
             passkey_str = f"{i:04d}"
             
-            # Encode as Decimal (like reference project)
-            # 1234 -> 12 34 (0C 22)
+            # Encode as Decimal
             byte_h = (passkey_int // 100) & 0xFF
             byte_l = passkey_int % 100
             
-            # Build Raw Command: AA 55 [ID_H] [ID_L] 01 00 00 [CS]
-            # Command 01 = Status? (Reference uses 01)
-            cmd = bytearray([0xAA, 0x55, byte_h, byte_l, 0x01, 0x00, 0x00, 0x00])
+            # HYPOTHESIS: 0C 22 are FIXED constants (Length/Type).
+            # The password might be in the "Reserved" bytes (Index 5, 6).
+            # Structure: AA 55 0C 22 01 [PW_H] [PW_L] [CS]
             
-            # Checksum: Sum of bytes 2-6 (ID_H + ID_L + 01 + 00 + 00)
+            cmd = bytearray([0xAA, 0x55, 0x0C, 0x22, 0x01, byte_h, byte_l, 0x00])
+            
+            # Checksum: Sum of bytes 2-6
             checksum = sum(cmd[2:7]) & 0xFF
             cmd[7] = checksum
             
