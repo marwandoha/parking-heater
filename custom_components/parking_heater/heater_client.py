@@ -303,13 +303,15 @@ class ParkingHeaterClient:
             if run_mode == 0x00:
                 target_level = response[10] + 1
             elif run_mode == 0x01:
-                target_level = response[9]
+                # User logs show Byte 10 is the level (05 = Level 5)
+                # Byte 9 was 25 (0x19), which is likely temperature or ignored
+                target_level = response[10]
             elif run_mode == 0x02:
                 target_temp = response[9]
                 target_level = response[10] + 1
             else:
-                # Fallback
-                target_level = response[9] if len(response) > 9 else 1
+                # Fallback: Try Byte 10 first as it seems more reliable for level
+                target_level = response[10] if len(response) > 10 else 1
             
             # Clamp level 1-10
             target_level = max(1, min(10, target_level))
