@@ -160,7 +160,7 @@ class ParkingHeaterClient:
             except Exception as err:
                 _LOGGER.error("Decryption failed: %s", err)
 
-    async def _send_command(self, command: bytes, wait_for_response: bool = True) -> bytearray:
+    async def _send_command(self, command: bytes, wait_for_response: bool = True, timeout: float = 5.0) -> bytearray:
         """Send a command and wait for response."""
         if not self.is_connected:
             raise BleakError("Not connected to device")
@@ -177,7 +177,7 @@ class ParkingHeaterClient:
 
             # Wait for response with timeout
             try:
-                await asyncio.wait_for(self._notification_event.wait(), timeout=5.0)
+                await asyncio.wait_for(self._notification_event.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 _LOGGER.warning("Timeout waiting for response")
                 return bytearray()
@@ -196,15 +196,14 @@ class ParkingHeaterClient:
             
             max_retries = 3
             for attempt in range(max_retries):
-                response = await self._send_command(CMD_GET_STATUS)
+                # Use short timeout for polling to avoid blocking UI
+                response = await self._send_command(CMD_GET_STATUS, timeout=2.0)
                 
                 if not response or len(response) < 13:
                     _LOGGER.warning("Invalid response received")
                     continue
                 
                 # Check if it's a status packet (0x01)
-                # Response format: AA 55 [CMD] ...
-                # CMD for status response is 0x01
                 if response[2] == 0x01:
                     break
                 
@@ -215,14 +214,7 @@ class ParkingHeaterClient:
                 return self._get_default_status()
 
             # Parse Decrypted Data
-            # Byte 3: Running State (0=Off, 1=On, 2=Ignition, 3=Heating, 4=Shutdown)
-            # Byte 11, 12: Voltage
-            # Byte 13, 14: Case Temp
-            # Byte 32, 33: Chamber Temp (if available, usually in 48-byte packet)
-            
             run_state = response[3]
-            # err_code = response[4]
-            # voltage = (response[12] + (response[11] << 8)) / 10.0
             case_temp = response[14] + (response[13] << 8)
             if case_temp > 32767: case_temp -= 65536
             
@@ -270,25 +262,19 @@ class ParkingHeaterClient:
         command = self._build_command(0x03, 0x01 if power_on else 0x00)
         
         # We wait for response to ensure the command is processed
-        # The heater sends a specific response packet starting with AA 55 03 ...
         # Retry logic for robustness
         for attempt in range(3):
             try:
-                # Increased wait time for response in _send_command (default is 5s)
-                await self._send_command(command, wait_for_response=True)
-                await asyncio.sleep(1.0) # Increased delay to 1s
+                # Use reasonable timeout for commands
+                await self._send_command(command, wait_for_response=True, timeout=3.0)
+                await asyncio.sleep(0.5) 
                 _LOGGER.info("Set power to %s (Attempt %d)", "ON" if power_on else "OFF", attempt + 1)
                 return
             except Exception as e:
                 _LOGGER.warning("Set power failed (Attempt %d): %s", attempt + 1, e)
-                await asyncio.sleep(1.5) # Increased retry delay
+                await asyncio.sleep(0.5)
         
-        # Fallback: Send blindly if retries failed
-        _LOGGER.warning("Failed to set power with response, sending blindly")
-        try:
-            await self._send_command(command, wait_for_response=False)
-        except:
-            pass
+        _LOGGER.error("Failed to set power after 3 attempts")
 
     async def set_mode(self, mode: int) -> None:
         """Set running mode (1=Manual/Level, 2=Auto/Temp)."""
