@@ -540,6 +540,7 @@ class HeaterCommander:
 
     async def menu(self):
         """Display the interactive main menu."""
+        global PASSWORD
         while True:
             print("\n--- Main Menu ---")
             status = "Connected" if self.client and self.client.is_connected else "Disconnected"
@@ -601,7 +602,6 @@ class HeaterCommander:
             elif choice == '7':
                 new_pass = await asyncio.get_event_loop().run_in_executor(None, input, "Enter new password (4 digits): ")
                 if len(new_pass) == 4 and new_pass.isdigit():
-                    global PASSWORD
                     PASSWORD = new_pass
                     _LOGGER.info(f"Password set to {PASSWORD}")
                 else:
