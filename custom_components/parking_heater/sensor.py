@@ -25,6 +25,7 @@ async def async_setup_entry(
     
     sensors = [
         ParkingHeaterErrorSensor(coordinator),
+        ParkingHeaterChamberTempSensor(coordinator),
     ]
     async_add_entities(sensors)
 
@@ -44,6 +45,31 @@ class ParkingHeaterErrorSensor(CoordinatorEntity[ParkingHeaterCoordinator], Sens
         """Return the state of the sensor."""
         if self.coordinator.data:
             return self.coordinator.data.get("error_code")
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.client.is_connected and self.coordinator.data is not None
+
+
+class ParkingHeaterChamberTempSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):
+    """Represents the chamber temperature sensor."""
+
+    def __init__(self, coordinator: ParkingHeaterCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._attr_name = f"{coordinator.entry.title} Chamber Temperature"
+        self._attr_unique_id = f"{coordinator.mac_address}_chamber_temp"
+        self._attr_icon = "mdi:thermometer"
+        self._attr_native_unit_of_measurement = "°C"
+        self._attr_device_class = "temperature"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the state of the sensor."""
+        if self.coordinator.data:
+            return self.coordinator.data.get("chamber_temperature")
         return None
 
     @property
