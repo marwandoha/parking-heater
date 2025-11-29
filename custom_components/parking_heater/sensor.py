@@ -26,6 +26,7 @@ async def async_setup_entry(
     sensors = [
         ParkingHeaterErrorSensor(coordinator),
         ParkingHeaterChamberTempSensor(coordinator),
+        ParkingHeaterCaseTempSensor(coordinator),
         ParkingHeaterRunStateSensor(coordinator),
         ParkingHeaterConnectionStatusSensor(coordinator),
     ]

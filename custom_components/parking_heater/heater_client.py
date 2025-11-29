@@ -311,12 +311,23 @@ class ParkingHeaterClient:
 
         # Ensure Manual Mode (1) first
         await self.set_mode(1)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.5) # Wait for mode switch
 
         # Command: 04 [Level] 00
         command = self._build_command(0x04, level)
-        await self._send_command(command, wait_for_response=False)
-        _LOGGER.info("Set level to %d", level)
+        
+        # Retry logic
+        for attempt in range(3):
+            try:
+                await self._send_command(command, wait_for_response=True)
+                await asyncio.sleep(0.5)
+                _LOGGER.info("Set level to %d (Attempt %d)", level, attempt + 1)
+                return
+            except Exception as e:
+                _LOGGER.warning("Set level failed (Attempt %d): %s", attempt + 1, e)
+                await asyncio.sleep(1.0)
+                
+        _LOGGER.error("Failed to set level after 3 attempts")
 
     async def set_fan_speed(self, fan_speed: int) -> None:
         """Set fan speed (1-5)."""
