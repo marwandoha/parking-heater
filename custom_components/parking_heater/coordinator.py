@@ -49,21 +49,37 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
         """Connect to the device."""
         _LOGGER.debug("async_connect called - setting desired_connection_status=True")
         self._desired_connection_status = True
+        
+        # Instant UI Feedback: Set status to Connecting
+        if self.data:
+            self.data["connection_status"] = "Connecting..."
+            self.async_set_updated_data(self.data)
+
         try:
             await self.client.connect()
             _LOGGER.info("Successfully connected to parking heater at %s", self.mac_address)
-            await self.async_request_refresh() # Update UI immediately
+            await self.async_request_refresh() # Update UI with real data
         except Exception as err:
             _LOGGER.error("Failed to connect to parking heater: %s", err)
+            # If connection failed, we should probably reflect that, but async_request_refresh will handle it
             raise
 
     async def async_disconnect(self) -> None:
         """Disconnect from the device."""
         _LOGGER.debug("async_disconnect called - setting desired_connection_status=False")
         self._desired_connection_status = False
+        
+        # Instant UI Feedback: Set status to Disconnected
+        # We use a default status but keep the "Disconnected (Manual)" message
+        data = self.client._get_default_status()
+        data["connection_status"] = "Disconnected (Manual)"
+        self.data = data
+        self.async_set_updated_data(self.data)
+
         await self.client.disconnect()
         _LOGGER.info("Disconnected from parking heater at %s", self.mac_address)
-        await self.async_request_refresh() # Update UI immediately
+        # No need to request refresh as we already updated the data, but it doesn't hurt to ensure consistency
+        # await self.async_request_refresh()
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the device."""
