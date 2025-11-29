@@ -284,11 +284,18 @@ class HeaterCommander:
 
     async def brute_force_password(self):
         """Try all passwords from 0000 to 9999."""
+        # Ask for start index
+        start_input = await asyncio.get_event_loop().run_in_executor(None, input, "Start from (default 0000): ")
+        start_index = int(start_input) if start_input.strip() else 0
+        
         if not self.client or not self.client.is_connected:
-            _LOGGER.error("Not connected.")
-            return
+            _LOGGER.info("Not connected. Connecting...")
+            await self.connect()
+            if not self.client or not self.client.is_connected:
+                _LOGGER.error("Failed to connect.")
+                return
 
-        _LOGGER.info("Starting Brute Force (0000-9999)... Press Ctrl+C to stop.")
+        _LOGGER.info(f"Starting Brute Force ({start_index:04d}-9999)... Press Ctrl+C to stop.")
         
         # Ensure notifications are enabled
         try:
@@ -299,23 +306,22 @@ class HeaterCommander:
 
         start_time = time.time()
         
-        for i in range(10000):
+        for i in range(start_index, 10000):
             passkey = f"{i:04d}"
             
-            # Print progress every 10 attempts to show activity
+            # Print progress every 10 attempts
             if i % 10 == 0:
                 elapsed = time.time() - start_time
-                rate = i / elapsed if elapsed > 0 else 0
+                rate = (i - start_index) / elapsed if elapsed > 0 else 0
                 _LOGGER.info(f"Trying {passkey}... (Rate: {rate:.1f} pw/s)")
 
             cmd = build_command(1, 0, passkey=passkey)
             try:
-                # Use response=False for speed and to avoid hanging on write response
+                # Use response=False for speed
                 await self.client.write_gatt_char(self.write_uuid, cmd, response=False)
                 
                 # Wait briefly for a response
                 try:
-                    # 0.1s timeout is enough if the device responds quickly to errors
                     response = await asyncio.wait_for(self.notification_queue.get(), timeout=0.1)
                     
                     if len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
@@ -325,8 +331,7 @@ class HeaterCommander:
                         self.is_authenticated = True
                         return
                     elif len(response) > 0 and response[0] == 0xDA:
-                        # Password error, continue
-                        pass
+                        pass # Password error
                     else:
                         _LOGGER.info(f"❓ Unknown response for {passkey}: {response.hex()}")
                         
@@ -335,13 +340,21 @@ class HeaterCommander:
                     
             except Exception as e:
                 _LOGGER.error(f"Write failed: {e}")
-                # If write fails, we might have lost connection
-                if not self.client.is_connected:
-                    _LOGGER.error("Connection lost.")
+                _LOGGER.info("Attempting to reconnect...")
+                try:
+                    await self.connect()
+                    await asyncio.sleep(2.0) # Wait for connection to settle
+                    # Re-enable notifications
+                    await self.client.start_notify(self.notify_uuid, self.notification_handler)
+                    # Retry this password
+                    i -= 1 
+                    continue
+                except Exception as reconnect_error:
+                    _LOGGER.error(f"Reconnection failed: {reconnect_error}")
                     break
                 
-            # Minimal delay
-            await asyncio.sleep(0.01)
+            # Slightly increased delay for stability
+            await asyncio.sleep(0.02)
 
         _LOGGER.info("Brute force complete. No password found.")
 
