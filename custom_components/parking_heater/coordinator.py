@@ -85,6 +85,11 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
             return data
 
         async with self._lock:
+            # Check again if we still want to be connected
+            if not self._desired_connection_status:
+                _LOGGER.debug("Skipping update because disconnect was requested")
+                return self.client._get_default_status()
+
             try:
                 if not self.client.is_connected:
                     # Update status to Connecting

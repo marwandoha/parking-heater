@@ -49,16 +49,9 @@ class ParkingHeaterLevelNumber(CoordinatorEntity[ParkingHeaterCoordinator], Numb
         """Return device info."""
         return self.coordinator.device_info
 
-    @property
-    def native_value(self) -> float | None:
         """Return the current value."""
-        # We don't have a reliable way to read the *current* set level from the status packet
-        # (unless we parse more bytes). For now, we can default to 1 or track it locally if needed.
-        # But wait, the status packet DOES have set level!
-        # Byte 10 (or 9 depending on mode).
-        # Let's check heater_client.py get_status.
-        # I didn't parse set_level there yet.
-        # For now, let's return None or a default.
+        if self.coordinator.data:
+            return self.coordinator.data.get("target_level", 1)
         return None 
 
     async def async_set_native_value(self, value: float) -> None:

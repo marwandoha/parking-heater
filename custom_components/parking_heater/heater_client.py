@@ -220,6 +220,11 @@ class ParkingHeaterClient:
 
             # Parse Decrypted Data
             run_state = response[3]
+            # Byte 8: Run Mode (1=Manual/Level, 2=Auto/Temp) - Assumption based on protocol
+            # Byte 9: Target Value (Level 1-10 or Temp 8-36)
+            
+            target_value = response[9] if len(response) > 9 else 1
+            
             case_temp = response[14] + (response[13] << 8)
             if case_temp > 32767: case_temp -= 65536
             
@@ -234,7 +239,8 @@ class ParkingHeaterClient:
             status = {
                 "is_on": is_on,
                 "run_state": run_state,
-                "target_temperature": MIN_TEMP, # TODO: Parse set temp from byte 9
+                "target_temperature": target_value if target_value > 10 else MIN_TEMP, 
+                "target_level": target_value if target_value <= 10 else 1, # Add target_level
                 "current_temperature": chamber_temp, # Swapped: Bytes 32-33 (Room)
                 "chamber_temperature": case_temp,    # Swapped: Bytes 13-14 (Chamber)
                 "fan_speed": 1, # Placeholder
