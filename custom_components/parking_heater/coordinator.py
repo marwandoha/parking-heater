@@ -47,6 +47,7 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
 
     async def async_connect(self) -> None:
         """Connect to the device."""
+        _LOGGER.debug("async_connect called - setting desired_connection_status=True")
         self._desired_connection_status = True
         try:
             await self.client.connect()
@@ -58,6 +59,7 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
 
     async def async_disconnect(self) -> None:
         """Disconnect from the device."""
+        _LOGGER.debug("async_disconnect called - setting desired_connection_status=False")
         self._desired_connection_status = False
         await self.client.disconnect()
         _LOGGER.info("Disconnected from parking heater at %s", self.mac_address)
@@ -70,9 +72,12 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
             self.data = self.client._get_default_status()
             self.data["connection_status"] = "Initializing"
 
+        _LOGGER.debug("Update data started. Desired connection status: %s", self._desired_connection_status)
+
         # If manual disconnect was requested, don't poll
         if not self._desired_connection_status:
             if self.client.is_connected:
+                _LOGGER.debug("Desired status is False but client is connected. Disconnecting...")
                 await self.client.disconnect()
             
             data = self.client._get_default_status()
