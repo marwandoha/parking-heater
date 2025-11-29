@@ -27,8 +27,37 @@ async def async_setup_entry(
         ParkingHeaterErrorSensor(coordinator),
         ParkingHeaterChamberTempSensor(coordinator),
         ParkingHeaterRunStateSensor(coordinator),
+        ParkingHeaterConnectionStatusSensor(coordinator),
     ]
     async_add_entities(sensors)
+
+
+class ParkingHeaterConnectionStatusSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):
+    """Represents the connection status of the heater."""
+
+    def __init__(self, coordinator: ParkingHeaterCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._attr_name = f"{coordinator.entry.title} Connection Status"
+        self._attr_unique_id = f"{coordinator.mac_address}_connection_status"
+        self._attr_icon = "mdi:bluetooth-connect"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        if self.coordinator.data:
+            return self.coordinator.data.get("connection_status", "Unknown")
+        return "Unknown"
+    
+    @property
+    def available(self) -> bool:
+        """Always available to show status."""
+        return True
 
 
 class ParkingHeaterErrorSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):

@@ -63,25 +63,49 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the device."""
+        # Initialize default data structure if not present
+        if self.data is None:
+            self.data = self.client._get_default_status()
+            self.data["connection_status"] = "Initializing"
+
         # If manual disconnect was requested, don't poll
         if not self._desired_connection_status:
             if self.client.is_connected:
                 await self.client.disconnect()
-            return self.data or {}
+            
+            data = self.client._get_default_status()
+            data["connection_status"] = "Disconnected (Manual)"
+            return data
 
         async with self._lock:
             try:
                 if not self.client.is_connected:
+                    # Update status to Connecting
+                    if self.data:
+                        self.data["connection_status"] = "Connecting..."
+                        self.async_set_updated_data(self.data) # Force update to show "Connecting"
+                    
                     await self.client.connect()
                 
+                # Fetch data
                 data = await self.client.get_status()
+                data["connection_status"] = "Connected"
                 _LOGGER.debug("Received data from parking heater: %s", data)
                 return data
+
             except Exception as err:
-                _LOGGER.error("Error fetching parking heater data: %s", err)
-                # Try to reconnect on next update
-                await self.client.disconnect()
-                raise UpdateFailed(f"Error communicating with device: {err}") from err
+                _LOGGER.error("Error communicating with parking heater: %s", err)
+                # Try to disconnect to clean up state
+                try:
+                    await self.client.disconnect()
+                except:
+                    pass
+                
+                # Return default data with error status
+                # We do NOT raise UpdateFailed so that the "Connection Status" sensor remains visible
+                data = self.client._get_default_status()
+                data["connection_status"] = f"Error: {str(err)[:20]}..." # Truncate error
+                return data
 
     async def async_set_power(self, power_on: bool) -> None:
         """Turn the heater on or off."""

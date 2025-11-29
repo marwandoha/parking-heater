@@ -259,6 +259,7 @@ class ParkingHeaterClient:
             "chamber_temperature": MIN_TEMP,
             "fan_speed": 1,
             "error_code": 0,
+            "connection_status": "Unknown",
         }
 
     async def set_power(self, power_on: bool) -> None:
