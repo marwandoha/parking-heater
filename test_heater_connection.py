@@ -329,6 +329,8 @@ class HeaterCommander:
 
     async def brute_force_password(self):
         """Try all passwords from 0000 to 9999 using the Raw Command structure."""
+        global PASSWORD
+        
         # Ask for start index
         start_input = await asyncio.get_event_loop().run_in_executor(None, input, "Start from (default 0000): ")
         start_index = int(start_input) if start_input.strip() else 0
@@ -387,7 +389,6 @@ class HeaterCommander:
                         pass # Password error (Expected for wrong password)
                     elif len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
                         _LOGGER.info(f"✅ FOUND PASSWORD: {passkey_str}")
-                        global PASSWORD
                         PASSWORD = passkey_str
                         self.is_authenticated = True
                         return
@@ -397,7 +398,6 @@ class HeaterCommander:
                         # If it looks like status data (13 bytes), we probably found it
                         if len(response) == 13:
                              _LOGGER.info(f"✅ FOUND PASSWORD (Status Received): {passkey_str}")
-                             global PASSWORD
                              PASSWORD = passkey_str
                              self.is_authenticated = True
                              return
