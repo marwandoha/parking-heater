@@ -238,10 +238,11 @@ class ParkingHeaterClient:
                 "is_on": is_on,
                 "run_state": run_state,
                 "target_temperature": MIN_TEMP, # TODO: Parse set temp from byte 9
-                "current_temperature": case_temp,
-                "chamber_temperature": chamber_temp,
+                "current_temperature": chamber_temp, # User reported this is Room Temp
+                "chamber_temperature": case_temp,    # User reported this is Chamber Temp
                 "fan_speed": 1, # Placeholder
                 "error_code": response[4],
+                "connection_status": "Connected",
             }
             
             _LOGGER.debug("Parsed status: %s", status)
