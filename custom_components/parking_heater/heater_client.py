@@ -283,16 +283,32 @@ class ParkingHeaterClient:
                 raise BleakError("Failed to get valid status packet")
 
             # Parse Decrypted Data
-            _LOGGER.info("Decrypted Status Packet: %s", response.hex())
+            _LOGGER.debug("Decrypted Status Packet: %s", response.hex())
             
             run_state = response[3]
-            # Byte 8: Run Mode (1=Manual/Level, 2=Auto/Temp)
-            # Byte 9: Target Value (Level 1-10 or Temp 8-36)
+            run_mode = response[8]
             
-            if len(response) > 9:
-                _LOGGER.info("Byte 8 (Mode?): %d, Byte 9 (Value?): %d, Byte 10: %d", response[8], response[9], response[10] if len(response) > 10 else -1)
+            # Logic from ESPHome (diesel_heater_ble/messages.h)
+            # Mode 0: Level = Byte 10 + 1
+            # Mode 1: Level = Byte 9
+            # Mode 2: Level = Byte 10 + 1 (Temp = Byte 9)
             
-            target_value = response[9] if len(response) > 9 else 1
+            target_level = 1
+            target_temp = 20 # Default
+            
+            if run_mode == 0x00:
+                target_level = response[10] + 1
+            elif run_mode == 0x01:
+                target_level = response[9]
+            elif run_mode == 0x02:
+                target_temp = response[9]
+                target_level = response[10] + 1
+            else:
+                # Fallback
+                target_level = response[9] if len(response) > 9 else 1
+            
+            # Clamp level 1-10
+            target_level = max(1, min(10, target_level))
             
             case_temp = response[14] + (response[13] << 8)
             if case_temp > 32767: case_temp -= 65536
