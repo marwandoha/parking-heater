@@ -109,19 +109,36 @@ class HeaterCommander:
             # We can't await here easily in sync method, but the menu loop handles it
             # Ideally we should just set a flag and let the user reconnect
 
+    def decrypt_data(self, data: bytearray) -> bytearray:
+        """
+        Decrypts data by XORing with 'password'.
+        Based on esphome-diesel-heater-ble logic.
+        """
+        key = b"password"
+        decrypted = bytearray(data)
+        for i in range(len(decrypted)):
+            decrypted[i] ^= key[i % 8]
+        return decrypted
+
     def parse_notification(self, data: bytearray):
         """
         Parses the notification data from the heater.
-        Based on APK logic:
-        0xAA 0x55 ...
-        Byte 3: Running State
-        Byte 4: Error Code
-        Byte 5: Running Step
-        Byte 8: Running Mode
-        Byte 11, 12: Voltage (Low, High) -> (High*256 + Low) / 10
-        Byte 13, 14: Case Temp (Low, High) -> Signed
-        Byte 15, 16: Cab Temp (Low, High) -> Signed
         """
+        # Check for Encrypted Packet (starts with DA)
+        if len(data) > 0 and data[0] == 0xDA:
+            _LOGGER.info(f"Received Encrypted Data (DA...): {data.hex()}")
+            try:
+                decrypted = self.decrypt_data(data)
+                _LOGGER.info(f"Decrypted Data: {decrypted.hex()}")
+                
+                if decrypted[0] == 0xAA and decrypted[1] == 0x55:
+                    _LOGGER.info("Decryption Successful! Valid AA 55 packet found.")
+                    data = decrypted # Proceed with decrypted data
+                else:
+                    _LOGGER.warning("Decrypted data does not start with AA 55.")
+            except Exception as e:
+                _LOGGER.error(f"Decryption failed: {e}")
+
         if len(data) < 13:
             _LOGGER.warning(f"Notification data too short: {data.hex()}")
             # Even if too short, check header for potential ASCII message
@@ -247,39 +264,30 @@ class HeaterCommander:
         try:
             response = await asyncio.wait_for(self.notification_queue.get(), timeout=3.0)
             
-            # Check for "password" error (da header or ascii decode)
-            if len(response) > 0 and response[0] == 0xDA:
-                 _LOGGER.warning(f"Passkey '{passkey}' rejected (Header DA).")
-                 return False
+            # Check for success response (AA 55) OR Encrypted (DA)
+            if len(response) >= 2:
+                if response[0] == 0xAA and response[1] == 0x55:
+                    _LOGGER.info("Handshake Step 1 accepted (Status AA 55 received).")
+                    return True
+                elif response[0] == 0xDA:
+                    _LOGGER.info("Handshake Step 1 accepted (Encrypted DA received).")
+                    # Verify decryption
+                    decrypted = self.decrypt_data(response)
+                    if decrypted[0] == 0xAA and decrypted[1] == 0x55:
+                        _LOGGER.info("Decrypted successfully to AA 55.")
+                        return True
             
-            # Try decoding as ASCII just in case
-            try:
-                ascii_msg = response.decode('ascii', errors='ignore')
-                if "password" in ascii_msg.lower() or "sword" in ascii_msg.lower():
-                    _LOGGER.warning(f"Passkey '{passkey}' rejected (ASCII match).")
-                    return False
-            except:
-                pass
-            
-            # Check for success response (AA 55)
-            if len(response) >= 2 and response[0] == 0xAA and response[1] == 0x55:
-                _LOGGER.info("Handshake Step 1 accepted (Status AA 55 received).")
-                # Proceed to Step 2
-            else:
-                _LOGGER.warning(f"Unexpected response: {response.hex()}. Treating as failure.")
-                return False
+            _LOGGER.warning(f"Unexpected response: {response.hex()}. Treating as failure.")
+            return False
 
         except asyncio.TimeoutError:
             # No response means failure in strict mode
             _LOGGER.warning("No response to Step 1. Treating as failure (Strict Mode).")
             return False
 
-        # Step 2: Send Command 1, Mode 136 (AA 88 ...)
-        cmd2 = build_command(1, 0, mode=0x88, passkey=passkey)
-        _LOGGER.info(f"Handshake Step 2: {cmd2.hex()}")
-        await self.client.write_gatt_char(self.write_uuid, cmd2)
-        await asyncio.sleep(0.5)
-        _LOGGER.info("Handshake complete.")
+        # Step 2: Send Command 1, Mode 136 (AA 88 ...) - NOT NEEDED FOR THIS PROTOCOL?
+        # The reference project just sends the command.
+        # But let's keep it simple: if Step 1 works, we are good.
         return True
 
     async def authenticate(self):
