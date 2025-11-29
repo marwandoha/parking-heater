@@ -1,14 +1,19 @@
 {
   "domain": "parking_heater",
   "name": "Parking Heater BLE",
-  "codeowners": ["@parking_heater"],
+  "codeowners": [
+    "@parking_heater"
+  ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/yourusername/parking_heater",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/yourusername/parking_heater/issues",
-  "requirements": ["bleak>=0.21.0", "bleak-retry-connector>=3.1.0"],
-  "version": "1.0.0",
+  "requirements": [
+    "bleak>=0.21.0",
+    "bleak-retry-connector>=3.1.0"
+  ],
+  "version": "1.0.1",
   "bluetooth": [
     {
       "local_name": "Air*"
