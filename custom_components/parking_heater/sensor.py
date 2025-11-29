@@ -119,7 +119,7 @@ class ParkingHeaterRunStateSensor(CoordinatorEntity[ParkingHeaterCoordinator], S
             # 0=Off, 1=On, 2=Ignition, 3=Heating, 4=Shutdown, 5=Standby
             return {
                 0: "Off",
-                1: "On (Startup)",
+                1: "On",
                 2: "Ignition",
                 3: "Heating",
                 4: "Shutdown/Cooling",

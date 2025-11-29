@@ -34,6 +34,10 @@ class ParkingHeaterClient:
         self._notification_data: bytearray = bytearray()
         self._notification_event = asyncio.Event()
         self._is_connected = False
+        
+        # Command Queue
+        self._command_queue: asyncio.Queue = asyncio.Queue()
+        self._command_worker_task: asyncio.Task | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -64,6 +68,11 @@ class ParkingHeaterClient:
             # Subscribe to notifications
             await self._client.start_notify(NOTIFY_CHAR_UUID, self._notification_handler)
             self._is_connected = True
+            
+            # Start Command Worker
+            if self._command_worker_task is None or self._command_worker_task.done():
+                self._command_worker_task = asyncio.create_task(self._command_worker())
+            
             _LOGGER.info("Connected to parking heater at %s", self.mac_address)
         except Exception as err:
             _LOGGER.error("Failed to connect to %s: %s", self.mac_address, err)
@@ -72,6 +81,15 @@ class ParkingHeaterClient:
 
     async def disconnect(self) -> None:
         """Disconnect from the device."""
+        # Stop Command Worker
+        if self._command_worker_task:
+            self._command_worker_task.cancel()
+            try:
+                await self._command_worker_task
+            except asyncio.CancelledError:
+                pass
+            self._command_worker_task = None
+
         if self._client is not None:
             try:
                 if self._client.is_connected:
@@ -93,6 +111,38 @@ class ParkingHeaterClient:
         _LOGGER.warning("Disconnected from parking heater at %s", self.mac_address)
         self._is_connected = False
 
+    async def _command_worker(self) -> None:
+        """Process commands from the queue with a delay."""
+        _LOGGER.debug("Command worker started")
+        while True:
+            try:
+                # Get command from queue
+                cmd_item = await self._command_queue.get()
+                command, wait_for_response, timeout, future = cmd_item
+                
+                try:
+                    if not self.is_connected:
+                         raise BleakError("Not connected")
+
+                    # Execute command
+                    result = await self._send_command_internal(command, wait_for_response, timeout)
+                    if not future.done():
+                        future.set_result(result)
+                except Exception as e:
+                    if not future.done():
+                        future.set_exception(e)
+                finally:
+                    self._command_queue.task_done()
+                
+                # Buffer delay to prevent overwhelming the device
+                await asyncio.sleep(0.8) 
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                _LOGGER.error("Error in command worker: %s", e)
+                await asyncio.sleep(1.0)
+
     def _notification_handler(
         self, sender: BleakGATTCharacteristic, data: bytearray
     ) -> None:
@@ -101,8 +151,19 @@ class ParkingHeaterClient:
         self._notification_data = data
         self._notification_event.set()
 
-    async def _send_command(self, command: bytes) -> bytearray:
-        """Send a command and wait for response."""
+    async def _send_command(self, command: bytes, wait_for_response: bool = True, timeout: float = 5.0) -> bytearray:
+        """Queue a command and wait for result."""
+        if not self.is_connected:
+            raise BleakError("Not connected to device")
+            
+        future = asyncio.get_running_loop().create_future()
+        await self._command_queue.put((command, wait_for_response, timeout, future))
+        
+        # Wait for the worker to process it
+        return await future
+
+    async def _send_command_internal(self, command: bytes, wait_for_response: bool = True, timeout: float = 5.0) -> bytearray:
+        """Internal method to send command (executed by worker)."""
         if not self.is_connected:
             raise BleakError("Not connected to device")
 
@@ -113,9 +174,12 @@ class ParkingHeaterClient:
             _LOGGER.debug("Sending command: %s", command.hex())
             await self._client.write_gatt_char(WRITE_CHAR_UUID, command, response=False)
             
+            if not wait_for_response:
+                return bytearray()
+
             # Wait for response with timeout
             try:
-                await asyncio.wait_for(self._notification_event.wait(), timeout=5.0)
+                await asyncio.wait_for(self._notification_event.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 _LOGGER.warning("Timeout waiting for response")
                 return bytearray()
