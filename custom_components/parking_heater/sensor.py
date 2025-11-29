@@ -101,7 +101,7 @@ class ParkingHeaterRunStateSensor(CoordinatorEntity[ParkingHeaterCoordinator], S
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.client.is_connected and self.coordinator.data is not None
+        return self.coordinator.data is not None
 
 
 class ParkingHeaterErrorSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):
@@ -130,7 +130,7 @@ class ParkingHeaterErrorSensor(CoordinatorEntity[ParkingHeaterCoordinator], Sens
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.client.is_connected and self.coordinator.data is not None
+        return self.coordinator.data is not None
 
 
 class ParkingHeaterChamberTempSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):
@@ -161,4 +161,4 @@ class ParkingHeaterChamberTempSensor(CoordinatorEntity[ParkingHeaterCoordinator]
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        return self.coordinator.client.is_connected and self.coordinator.data is not None
+        return self.coordinator.data is not None
