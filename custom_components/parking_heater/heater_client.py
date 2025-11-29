@@ -365,6 +365,7 @@ class ParkingHeaterClient:
         return {
             "is_on": False,
             "target_temperature": MIN_TEMP,
+            "target_level": 1,
             "current_temperature": MIN_TEMP,
             "chamber_temperature": MIN_TEMP,
             "fan_speed": 1,
