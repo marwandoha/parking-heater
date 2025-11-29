@@ -285,7 +285,11 @@ class ParkingHeaterClient:
                 _LOGGER.warning("Set power failed (Attempt %d): %s", attempt + 1, e)
                 await asyncio.sleep(0.5)
         
-        _LOGGER.error("Failed to set power after 3 attempts")
+        _LOGGER.warning("Failed to set power after 3 attempts, sending blindly")
+        try:
+            await self._send_command(command, wait_for_response=False)
+        except:
+            pass
 
     async def set_mode(self, mode: int) -> None:
         """Set running mode (1=Manual/Level, 2=Auto/Temp)."""

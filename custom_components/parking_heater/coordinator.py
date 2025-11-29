@@ -113,10 +113,14 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
                 except:
                     pass
                 
-                # Return default data with error status
-                # We do NOT raise UpdateFailed so that the "Connection Status" sensor remains visible
+                # Return previous data with error status if available, otherwise default
+                if self.data and self.data.get("connection_status") != "Initializing":
+                    data = self.data.copy()
+                    data["connection_status"] = f"Error: {str(err)[:20]}..."
+                    return data
+                
                 data = self.client._get_default_status()
-                data["connection_status"] = f"Error: {str(err)[:20]}..." # Truncate error
+                data["connection_status"] = f"Error: {str(err)[:20]}..."
                 return data
 
     async def async_set_power(self, power_on: bool) -> None:
