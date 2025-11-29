@@ -51,6 +51,7 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
         try:
             await self.client.connect()
             _LOGGER.info("Successfully connected to parking heater at %s", self.mac_address)
+            await self.async_request_refresh() # Update UI immediately
         except Exception as err:
             _LOGGER.error("Failed to connect to parking heater: %s", err)
             raise
@@ -60,6 +61,7 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
         self._desired_connection_status = False
         await self.client.disconnect()
         _LOGGER.info("Disconnected from parking heater at %s", self.mac_address)
+        await self.async_request_refresh() # Update UI immediately
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the device."""
