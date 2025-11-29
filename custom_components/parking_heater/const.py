@@ -1,6 +1,5 @@
 """Constants for the Parking Heater integration."""
 from typing import Final
-from datetime import timedelta
 
 DOMAIN: Final = "parking_heater"
 
@@ -61,4 +60,4 @@ FAN_SPEEDS: Final = {
 }
 
 # Update interval
-UPDATE_INTERVAL: Final = timedelta(seconds=5)  # Fast polling for active status
+UPDATE_INTERVAL: Final = 5  # Fast polling for active status
