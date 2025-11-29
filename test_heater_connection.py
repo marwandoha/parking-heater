@@ -241,9 +241,9 @@ class HeaterCommander:
             _LOGGER.info(f"  Raw Data:    {data.hex()}")
             _LOGGER.info(f"  Checksum:    {received_checksum:02x} {checksum_status}")
             _LOGGER.info(f"  Byte 2 (State?): {data[2]}")
-            _LOGGER.info(f"  Byte 3:          {data[3]}")
-            _LOGGER.info(f"  Byte 4:          {data[4]}")
-            _LOGGER.info(f"  Byte 5:          {data[5]}")
+            _LOGGER.info(f"  Byte 8 (Mode?):  {data[8] if len(data) > 8 else 'N/A'}")
+            _LOGGER.info(f"  Byte 9 (Val1?):  {data[9] if len(data) > 9 else 'N/A'}")
+            _LOGGER.info(f"  Byte 10 (Val2?): {data[10] if len(data) > 10 else 'N/A'}")
             _LOGGER.info(f"---------------------\n")
 
     def notification_handler(self, sender, data):
