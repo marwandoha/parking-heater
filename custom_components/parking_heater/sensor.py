@@ -35,6 +35,7 @@ async def async_setup_entry(
         ParkingHeaterCaseTempSensor(coordinator),
         ParkingHeaterRunStateSensor(coordinator),
         ParkingHeaterConnectionStatusSensor(coordinator),
+        ParkingHeaterFanLevelSensor(coordinator),
     ]
     async_add_entities(sensors)
 
@@ -186,6 +187,35 @@ class ParkingHeaterCaseTempSensor(CoordinatorEntity[ParkingHeaterCoordinator], S
         """Return the state of the sensor."""
         if self.coordinator.data:
             return self.coordinator.data.get("current_temperature")
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.data is not None
+
+
+class ParkingHeaterFanLevelSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):
+    """Represents the fan level sensor (for debugging)."""
+
+    def __init__(self, coordinator: ParkingHeaterCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._attr_name = f"{coordinator.entry.title} Fan Level"
+        self._attr_unique_id = f"{coordinator.mac_address}_fan_level"
+        self._attr_icon = "mdi:fan"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the state of the sensor."""
+        if self.coordinator.data:
+            return self.coordinator.data.get("target_level")
         return None
 
     @property
