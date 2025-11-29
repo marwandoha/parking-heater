@@ -68,15 +68,11 @@ class ParkingHeaterClimate(CoordinatorEntity, ClimateEntity):
         self._attr_unique_id = entry.data[CONF_MAC_ADDRESS].replace(":", "").lower()
         self._attr_name = entry.data.get(CONF_DEVICE_NAME, "Parking Heater")
         self._mac_address = entry.data[CONF_MAC_ADDRESS]
-        
-        # Device info for proper grouping in HA
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, self._mac_address)},
-            "name": self._attr_name,
-            "manufacturer": "Generic",
-            "model": "BLE Parking Heater",
-            "sw_version": "1.0",
-        }
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
 
     @property
     def available(self) -> bool:

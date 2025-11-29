@@ -41,7 +41,13 @@ class ParkingHeaterLevelNumber(CoordinatorEntity[ParkingHeaterCoordinator], Numb
         self._attr_icon = "mdi:speedometer"
         self._attr_native_min_value = MIN_LEVEL
         self._attr_native_max_value = MAX_LEVEL
+        self._attr_native_max_value = MAX_LEVEL
         self._attr_native_step = LEVEL_STEP
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
 
     @property
     def native_value(self) -> float | None:

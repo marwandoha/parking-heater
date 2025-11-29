@@ -39,7 +39,13 @@ class ParkingHeaterPowerSwitch(CoordinatorEntity[ParkingHeaterCoordinator], Swit
         super().__init__(coordinator)
         self._attr_name = f"{coordinator.entry.title} Power"
         self._attr_unique_id = f"{coordinator.mac_address}_power"
+        self._attr_unique_id = f"{coordinator.mac_address}_power"
         self._attr_icon = "mdi:power"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
 
     @property
     def is_on(self) -> bool:
@@ -70,7 +76,13 @@ class ParkingHeaterConnectionSwitch(CoordinatorEntity[ParkingHeaterCoordinator],
         super().__init__(coordinator)
         self._attr_name = f"{coordinator.entry.title} Connection"
         self._attr_unique_id = f"{coordinator.mac_address}_connection"
+        self._attr_unique_id = f"{coordinator.mac_address}_connection"
         self._attr_icon = "mdi:bluetooth-connect"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
 
     @property
     def is_on(self) -> bool:

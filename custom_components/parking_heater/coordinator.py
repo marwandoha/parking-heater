@@ -32,6 +32,17 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
         self.client = ParkingHeaterClient(self.mac_address, hass)
         self._lock = asyncio.Lock()
 
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return {
+            "identifiers": {(DOMAIN, self.mac_address)},
+            "name": self.entry.title,
+            "manufacturer": "Parking Heater",
+            "model": "BLE Controller",
+            "sw_version": "1.0",
+        }
+
     async def async_connect(self) -> None:
         """Connect to the device."""
         try:

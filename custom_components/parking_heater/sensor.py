@@ -38,7 +38,13 @@ class ParkingHeaterErrorSensor(CoordinatorEntity[ParkingHeaterCoordinator], Sens
         super().__init__(coordinator)
         self._attr_name = f"{coordinator.entry.title} Error Code"
         self._attr_unique_id = f"{coordinator.mac_address}_error_code"
+        self._attr_unique_id = f"{coordinator.mac_address}_error_code"
         self._attr_icon = "mdi:alert-circle-outline"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
 
     @property
     def native_value(self) -> int | None:
@@ -63,7 +69,13 @@ class ParkingHeaterChamberTempSensor(CoordinatorEntity[ParkingHeaterCoordinator]
         self._attr_unique_id = f"{coordinator.mac_address}_chamber_temp"
         self._attr_icon = "mdi:thermometer"
         self._attr_native_unit_of_measurement = "°C"
+        self._attr_native_unit_of_measurement = "°C"
         self._attr_device_class = "temperature"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
 
     @property
     def native_value(self) -> float | None:
