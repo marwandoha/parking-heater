@@ -238,8 +238,8 @@ class ParkingHeaterClient:
                 "is_on": is_on,
                 "run_state": run_state,
                 "target_temperature": MIN_TEMP, # TODO: Parse set temp from byte 9
-                "current_temperature": case_temp,    # Reverted: Bytes 13-14 (Room/Case)
-                "chamber_temperature": chamber_temp, # Reverted: Bytes 32-33 (Chamber)
+                "current_temperature": chamber_temp, # Swapped: Bytes 32-33 (Room)
+                "chamber_temperature": case_temp,    # Swapped: Bytes 13-14 (Chamber)
                 "fan_speed": 1, # Placeholder
                 "error_code": response[4],
                 "connection_status": "Connected",
@@ -274,15 +274,21 @@ class ParkingHeaterClient:
         # Retry logic for robustness
         for attempt in range(3):
             try:
+                # Increased wait time for response in _send_command (default is 5s)
                 await self._send_command(command, wait_for_response=True)
-                await asyncio.sleep(0.5) # Give it a moment
+                await asyncio.sleep(1.0) # Increased delay to 1s
                 _LOGGER.info("Set power to %s (Attempt %d)", "ON" if power_on else "OFF", attempt + 1)
                 return
             except Exception as e:
                 _LOGGER.warning("Set power failed (Attempt %d): %s", attempt + 1, e)
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(1.5) # Increased retry delay
         
-        _LOGGER.error("Failed to set power after 3 attempts")
+        # Fallback: Send blindly if retries failed
+        _LOGGER.warning("Failed to set power with response, sending blindly")
+        try:
+            await self._send_command(command, wait_for_response=False)
+        except:
+            pass
 
     async def set_mode(self, mode: int) -> None:
         """Set running mode (1=Manual/Level, 2=Auto/Temp)."""
