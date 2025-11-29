@@ -282,6 +282,51 @@ class HeaterCommander:
         _LOGGER.info("Handshake complete.")
         return True
 
+    async def authenticate(self):
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected. Please connect first.")
+            return
+        if self.is_authenticated:
+            _LOGGER.info("Already authenticated.")
+            return
+
+        _LOGGER.info("Attempting authentication...")
+        
+        try:
+            # Start notifications on ALL known notify characteristics
+            notify_uuids = [self.notify_uuid]
+            if self.notify_uuid == NOTIFY_UUID_NEW:
+                 notify_uuids.append("0000ffe4-0000-1000-8000-00805f9b34fb")
+
+            for uuid in notify_uuids:
+                _LOGGER.info(f"Starting notifications on {uuid}...")
+                try:
+                    await self.client.start_notify(uuid, self.notification_handler)
+                    _LOGGER.info(f"✅ Listening on {uuid}")
+                except Exception as e:
+                    _LOGGER.warning(f"Could not start notify on {uuid}: {e}")
+
+            # Try common passwords
+            # Added "0132" and "0120" based on received status packet "AA 55 01 20..."
+            passwords = ["1234", "0000", "1111", "8888", "9999", "1688", "54321", "6666", "123456", "654321", "0132", "0120"]
+            
+            for pk in passwords:
+                if await self.handshake(pk):
+                    _LOGGER.info(f"✅ Authentication Successful with passkey '{pk}'!")
+                    self.is_authenticated = True
+                    global PASSWORD
+                    PASSWORD = pk
+                    return
+                _LOGGER.warning(f"Authentication failed with passkey '{pk}'. Retrying...")
+                await asyncio.sleep(1.0)
+
+            _LOGGER.error("❌ All passwords failed.")
+            self.is_authenticated = False
+
+        except Exception as e:
+            _LOGGER.error(f"Authentication failed: {e}", exc_info=True)
+            self.is_authenticated = False
+
     async def brute_force_password(self):
         """Try all passwords from 0000 to 9999."""
         # Ask for start index
