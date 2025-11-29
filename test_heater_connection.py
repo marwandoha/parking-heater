@@ -587,6 +587,14 @@ class HeaterCommander:
             _LOGGER.error("Not connected.")
             return
 
+        # Ensure notifications are enabled
+        try:
+            await self.client.start_notify(self.notify_uuid, self.notification_handler)
+            _LOGGER.info(f"✅ Listening on {self.notify_uuid}")
+        except Exception as e:
+            # Ignore if already notifying
+            pass
+
         raw_input = await asyncio.get_event_loop().run_in_executor(None, input, "Enter raw hex command (e.g., AA 55 0C 22 01 00 00 2F): ")
         try:
             # Remove spaces and convert to bytes
