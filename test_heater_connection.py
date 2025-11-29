@@ -460,7 +460,7 @@ class HeaterCommander:
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
             protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
             print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics | 14. Brute Force Password")
+            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics | 13. Send Raw Command | 14. Brute Force Password")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -537,7 +537,7 @@ class HeaterCommander:
             elif choice == '12':
                 await self.test_characteristics()
             elif choice == '13':
-                await self.monitor_status()
+                await self.send_raw_command()
             elif choice == '14':
                 await self.brute_force_password()
             else:
@@ -580,6 +580,34 @@ class HeaterCommander:
             _LOGGER.info("Monitor stopped by user.")
         except Exception as e:
             _LOGGER.error(f"Monitor error: {e}")
+
+    async def send_raw_command(self):
+        """Allows user to send a raw hex string command."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected.")
+            return
+
+        raw_input = await asyncio.get_event_loop().run_in_executor(None, input, "Enter raw hex command (e.g., AA 55 0C 22 01 00 00 2F): ")
+        try:
+            # Remove spaces and convert to bytes
+            cmd_bytes = bytearray.fromhex(raw_input.replace(" ", ""))
+            _LOGGER.info(f"Sending Raw Command: {cmd_bytes.hex()}")
+            
+            await self.client.write_gatt_char(self.write_uuid, cmd_bytes)
+            _LOGGER.info("Command sent.")
+            
+            # Wait for notification
+            try:
+                response = await asyncio.wait_for(self.notification_queue.get(), timeout=2.0)
+                _LOGGER.info(f"Response: {response.hex()}")
+                self.parse_notification(response)
+            except asyncio.TimeoutError:
+                _LOGGER.info("No response received.")
+                
+        except ValueError:
+            _LOGGER.error("Invalid hex string.")
+        except Exception as e:
+            _LOGGER.error(f"Error sending raw command: {e}")
 
     async def list_services(self):
         """Lists all services and characteristics of the connected device."""
