@@ -285,6 +285,24 @@ class HeaterCommander:
         await self.client.write_gatt_char(self.write_uuid, cmd)
         _LOGGER.info(f"Sent: {cmd.hex()}")
 
+    async def set_level(self, level: int):
+        """Sets the power level (1-10)."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected.")
+            return
+
+        _LOGGER.info(f"Setting Level to {level}...")
+        # Ensure Manual Mode (1) first
+        # Command: 02 01 00
+        cmd_mode = build_command(2, 1, passkey=PASSWORD)
+        await self.client.write_gatt_char(self.write_uuid, cmd_mode)
+        await asyncio.sleep(0.5)
+
+        # Command: 04 [Level] 00
+        cmd_level = build_command(4, level, passkey=PASSWORD)
+        await self.client.write_gatt_char(self.write_uuid, cmd_level)
+        _LOGGER.info(f"Sent Level Command: {cmd_level.hex()}")
+
     async def connect(self):
         """Connect to the heater."""
         if self.client and self.client.is_connected:
@@ -554,7 +572,7 @@ class HeaterCommander:
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
             protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
             print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
-            print("1. Connect | 2. Authenticate | 3. Turn ON | 4. Turn OFF | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Monitor Status (Continuous) | 9. Switch Protocol | 10. List Services | 11. Test Characteristics | 12. Send Raw Command | 13. Brute Force Password")
+            print("1. Connect | 2. Authenticate | 3. Turn ON | 4. Turn OFF | 5. Set Level | 6. Scan Devices | 7. Exit | 8. Set Password Manually | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics | 13. Send Raw Command | 14. Brute Force Password")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -600,30 +618,40 @@ class HeaterCommander:
             elif choice == '4':
                 await self.turn_off()
             elif choice == '5':
-                await self.scan_devices()
+                level_str = await asyncio.get_event_loop().run_in_executor(None, input, "Enter Level (1-10): ")
+                try:
+                    level = int(level_str)
+                    if 1 <= level <= 10:
+                        await self.set_level(level)
+                    else:
+                        print("Invalid level.")
+                except ValueError:
+                    print("Invalid input.")
             elif choice == '6':
+                await self.scan_devices()
+            elif choice == '7':
                 print("Exiting...")
                 if self.client:
                     await self.client.disconnect()
                 break
-            elif choice == '7':
+            elif choice == '8':
                 new_pass = await asyncio.get_event_loop().run_in_executor(None, input, "Enter new password (4 digits): ")
                 if len(new_pass) == 4 and new_pass.isdigit():
                     PASSWORD = new_pass
                     _LOGGER.info(f"Password set to {PASSWORD}")
                 else:
                     _LOGGER.warning("Invalid password format.")
-            elif choice == '8':
-                await self.monitor_status()
             elif choice == '9':
-                self.toggle_protocol()
+                await self.monitor_status()
             elif choice == '10':
-                await self.list_services()
+                self.toggle_protocol()
             elif choice == '11':
-                await self.test_characteristics()
+                await self.list_services()
             elif choice == '12':
-                await self.send_raw_command()
+                await self.test_characteristics()
             elif choice == '13':
+                await self.send_raw_command()
+            elif choice == '14':
                 await self.brute_force_password()
             else:
                 _LOGGER.warning("Invalid choice.")
