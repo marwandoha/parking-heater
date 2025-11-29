@@ -134,10 +134,36 @@ class HeaterCommander:
                 if decrypted[0] == 0xAA and decrypted[1] == 0x55:
                     _LOGGER.info("Decryption Successful! Valid AA 55 packet found.")
                     data = decrypted # Proceed with decrypted data
+                    
+                    # Parse Decrypted Data (Encrypted Protocol)
+                    # Based on esphome: HEATER_AA_55_ENCRYPTED
+                    if len(data) >= 20:
+                        run_state = data[3]
+                        err_code = data[4]
+                        run_step = data[5]
+                        # altitude = (data[7] + (data[6] << 8)) / 10
+                        # run_mode = data[8]
+                        # set_temp = data[9]
+                        # set_level = data[10]
+                        voltage = (data[12] + (data[11] << 8)) / 10.0
+                        case_temp = (data[14] + (data[13] << 8))
+                        # cab_temp = (data[33] + (data[32] << 8)) / 10.0 if len(data) > 33 else 0
+                        
+                        # Sign extension for temps (16-bit signed)
+                        if case_temp > 32767: case_temp -= 65536
+                        
+                        _LOGGER.info(f"--- HEATER STATUS (Decrypted) ---")
+                        _LOGGER.info(f"  State:       {run_state} (0=Off, 1=On, 2=Ignition, 3=Heating, 4=Shutdown)")
+                        _LOGGER.info(f"  Error:       {err_code}")
+                        _LOGGER.info(f"  Voltage:     {voltage:.1f}V")
+                        _LOGGER.info(f"  Case Temp:   {case_temp}°C")
+                        _LOGGER.info(f"---------------------------------")
+                        return
                 else:
                     _LOGGER.warning("Decrypted data does not start with AA 55.")
             except Exception as e:
                 _LOGGER.error(f"Decryption failed: {e}")
+                return
 
         if len(data) < 13:
             _LOGGER.warning(f"Notification data too short: {data.hex()}")
@@ -571,36 +597,39 @@ class HeaterCommander:
                 _LOGGER.warning("Invalid choice.")
 
     async def monitor_status(self):
-        """Continuously reads status from FFE1."""
+        """Continuously polls status using Active Polling (Send Cmd -> Wait Notify)."""
         if not self.client or not self.client.is_connected:
             _LOGGER.error("Not connected.")
             return
             
-        _LOGGER.info("Starting Status Monitor (Read Mode). Press Ctrl+C to stop.")
-        _LOGGER.info("Note: This bypasses the 'password error' notifications by reading directly.")
+        _LOGGER.info("Starting Status Monitor (Active Polling). Press Ctrl+C to stop.")
         
-        # Use the main write UUID (FFE1) for reading as well, as discovered
-        target_uuid = self.write_uuid 
-        last_data = None
+        # Ensure notifications are enabled
+        try:
+            await self.client.start_notify(self.notify_uuid, self.notification_handler)
+            _LOGGER.info(f"✅ Listening on {self.notify_uuid}")
+        except Exception as e:
+            pass
+            
+        # Command: AA 55 0C 22 01 00 00 2F (Get Status, with "1234" ID)
+        cmd = bytearray([0xAA, 0x55, 0x0C, 0x22, 0x01, 0x00, 0x00, 0x2F])
         
         try:
             while True:
                 try:
-                    data = await self.client.read_gatt_char(target_uuid)
+                    # Send Command
+                    await self.client.write_gatt_char(self.write_uuid, cmd, response=False)
                     
-                    # Deduplicate: Only process if data changed
-                    if data != last_data:
-                        last_data = data
-                        self.parse_notification(data)
+                    # Wait for response (handled by notification_handler -> parse_notification)
+                    # We don't need to do anything here, just wait.
+                    # The notification handler logs the parsed status.
                     
                 except Exception as e:
-                    _LOGGER.error(f"Read failed: {e}")
-                    # If read fails, maybe we lost connection?
+                    _LOGGER.error(f"Poll failed: {e}")
                     if not self.client.is_connected:
-                        _LOGGER.error("Connection lost.")
                         break
                 
-                await asyncio.sleep(0.5) # Poll faster to catch transitions
+                await asyncio.sleep(1.0) # Poll every second
         except asyncio.CancelledError:
             _LOGGER.info("Monitor stopped.")
         except KeyboardInterrupt:
