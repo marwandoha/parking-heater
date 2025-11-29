@@ -269,9 +269,18 @@ class ParkingHeaterClient:
         
         # We wait for response to ensure the command is processed
         # The heater sends a specific response packet starting with AA 55 03 ...
-        await self._send_command(command, wait_for_response=True)
-        await asyncio.sleep(0.5) # Give it a moment
-        _LOGGER.info("Set power to %s", "ON" if power_on else "OFF")
+        # Retry logic for robustness
+        for attempt in range(3):
+            try:
+                await self._send_command(command, wait_for_response=True)
+                await asyncio.sleep(0.5) # Give it a moment
+                _LOGGER.info("Set power to %s (Attempt %d)", "ON" if power_on else "OFF", attempt + 1)
+                return
+            except Exception as e:
+                _LOGGER.warning("Set power failed (Attempt %d): %s", attempt + 1, e)
+                await asyncio.sleep(1.0)
+        
+        _LOGGER.error("Failed to set power after 3 attempts")
 
     async def set_mode(self, mode: int) -> None:
         """Set running mode (1=Manual/Level, 2=Auto/Temp)."""

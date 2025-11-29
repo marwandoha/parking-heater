@@ -25,47 +25,9 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id]
     
     switches = [
-        ParkingHeaterPowerSwitch(coordinator),
         ParkingHeaterConnectionSwitch(coordinator),
     ]
     async_add_entities(switches)
-
-
-class ParkingHeaterPowerSwitch(CoordinatorEntity[ParkingHeaterCoordinator], SwitchEntity):
-    """Represents the power switch for the Parking Heater."""
-
-    def __init__(self, coordinator: ParkingHeaterCoordinator) -> None:
-        """Initialize the switch."""
-        super().__init__(coordinator)
-        self._attr_name = f"{coordinator.entry.title} Power"
-        self._attr_unique_id = f"{coordinator.mac_address}_power"
-        self._attr_unique_id = f"{coordinator.mac_address}_power"
-        self._attr_icon = "mdi:power"
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        """Return device info."""
-        return self.coordinator.device_info
-
-    @property
-    def is_on(self) -> bool:
-        """Return True if the heater is on."""
-        if self.coordinator.data:
-            return self.coordinator.data.get("is_on", False)
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the heater on."""
-        await self.coordinator.async_set_power(True)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the heater off."""
-        await self.coordinator.async_set_power(False)
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return self.coordinator.client.is_connected
 
 
 class ParkingHeaterConnectionSwitch(CoordinatorEntity[ParkingHeaterCoordinator], SwitchEntity):
