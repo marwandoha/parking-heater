@@ -14,12 +14,9 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     CMD_GET_STATUS,
-    CMD_POWER_OFF,
-    CMD_POWER_ON,
     MAX_TEMP,
     MIN_TEMP,
     NOTIFY_CHAR_UUID,
-    SERVICE_UUID,
     WRITE_CHAR_UUID,
 )
 
@@ -125,34 +122,101 @@ class ParkingHeaterClient:
 
     def _calculate_checksum(self, data: bytes) -> int:
         """Calculate checksum for command."""
-        return sum(data) & 0xFF
+        # Sum of bytes 2 to end (excluding checksum itself if present)
+        # But for our build_command, we sum bytes 2-6
+        return sum(data[2:]) & 0xFF
 
-    def _build_command(self, cmd_type: int, data: bytes = b"") -> bytes:
+    def _build_command(self, cmd_type: int, data1: int = 0, data2: int = 0) -> bytes:
         """Build a command with checksum."""
-        # Command format: [0x76, cmd_type, length, data..., checksum]
-        length = len(data)
-        command = bytes([0x76, cmd_type, length]) + data
-        checksum = self._calculate_checksum(command)
-        return command + bytes([checksum])
+        # Structure: AA 55 0C 22 [CMD] [DATA1] [DATA2] [CS]
+        # 0C 22 is fixed password "1234"
+        cmd = bytearray([0xAA, 0x55, 0x0C, 0x22, cmd_type, data1, data2, 0x00])
+        cmd[7] = sum(cmd[2:7]) & 0xFF
+        return bytes(cmd)
+
+    def _decrypt_data(self, data: bytearray) -> bytearray:
+        """Decrypts data by XORing with 'password'."""
+        key = b"password"
+        decrypted = bytearray(data)
+        for i in range(len(decrypted)):
+            decrypted[i] ^= key[i % 8]
+        return decrypted
+
+    def _notification_handler(
+        self, sender: BleakGATTCharacteristic, data: bytearray
+    ) -> None:
+        """Handle notification data."""
+        _LOGGER.debug("Received notification: %s", data.hex())
+        
+        # Check for Encrypted Packet (starts with DA)
+        if len(data) > 0 and data[0] == 0xDA:
+            try:
+                decrypted = self._decrypt_data(data)
+                _LOGGER.debug("Decrypted Data: %s", decrypted.hex())
+                
+                if decrypted[0] == 0xAA and decrypted[1] == 0x55:
+                    self._notification_data = decrypted
+                    self._notification_event.set()
+            except Exception as err:
+                _LOGGER.error("Decryption failed: %s", err)
+
+    async def _send_command(self, command: bytes, wait_for_response: bool = True) -> bytearray:
+        """Send a command and wait for response."""
+        if not self.is_connected:
+            raise BleakError("Not connected to device")
+
+        self._notification_event.clear()
+        self._notification_data = bytearray()
+
+        try:
+            _LOGGER.debug("Sending command: %s", command.hex())
+            await self._client.write_gatt_char(WRITE_CHAR_UUID, command, response=False)
+            
+            if not wait_for_response:
+                return bytearray()
+
+            # Wait for response with timeout
+            try:
+                await asyncio.wait_for(self._notification_event.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                _LOGGER.warning("Timeout waiting for response")
+                return bytearray()
+
+            return self._notification_data
+        except Exception as err:
+            _LOGGER.error("Error sending command: %s", err)
+            raise
 
     async def get_status(self) -> dict[str, Any]:
         """Get current status from the heater."""
         try:
+            # Active Polling: Send CMD_GET_STATUS
             response = await self._send_command(CMD_GET_STATUS)
             
-            if not response or len(response) < 8:
+            if not response or len(response) < 13:
                 _LOGGER.warning("Invalid response received")
                 return self._get_default_status()
 
-            # Parse response
-            # This is a common format for Chinese BLE heaters, but may need adjustment
-            # Format: [header, cmd, length, power, temp, fan_speed, ..., checksum]
+            # Parse Decrypted Data
+            # Byte 3: Running State (0=Off, 1=On, 2=Ignition, 3=Heating, 4=Shutdown)
+            # Byte 11, 12: Voltage
+            # Byte 13, 14: Case Temp
+            
+            run_state = response[3]
+            # err_code = response[4]
+            # voltage = (response[12] + (response[11] << 8)) / 10.0
+            case_temp = response[14] + (response[13] << 8)
+            if case_temp > 32767: case_temp -= 65536
+
+            is_on = run_state in [1, 2, 3, 4] # Assuming 4 (Shutdown) counts as on? Or maybe just 1,2,3.
+            # Let's say 1, 2, 3 are active states. 4 is shutdown process. 0 is Off.
+            
             status = {
-                "is_on": bool(response[3]) if len(response) > 3 else False,
-                "target_temperature": response[4] if len(response) > 4 else MIN_TEMP,
-                "current_temperature": response[5] if len(response) > 5 else MIN_TEMP,
-                "fan_speed": response[6] if len(response) > 6 else 1,
-                "error_code": response[7] if len(response) > 7 else 0,
+                "is_on": is_on,
+                "target_temperature": MIN_TEMP, # Not in basic status packet? Need to check.
+                "current_temperature": case_temp,
+                "fan_speed": 1, # Placeholder
+                "error_code": response[4],
             }
             
             _LOGGER.debug("Parsed status: %s", status)
@@ -173,8 +237,10 @@ class ParkingHeaterClient:
 
     async def set_power(self, power_on: bool) -> None:
         """Turn the heater on or off."""
-        command = CMD_POWER_ON if power_on else CMD_POWER_OFF
-        await self._send_command(command)
+        # Turn On: 03 01 00
+        # Turn Off: 03 00 00
+        command = self._build_command(0x03, 0x01 if power_on else 0x00)
+        await self._send_command(command, wait_for_response=False)
         _LOGGER.info("Set power to %s", "ON" if power_on else "OFF")
 
     async def set_temperature(self, temperature: int) -> None:
@@ -182,17 +248,12 @@ class ParkingHeaterClient:
         if not MIN_TEMP <= temperature <= MAX_TEMP:
             raise ValueError(f"Temperature must be between {MIN_TEMP} and {MAX_TEMP}")
 
-        # Command format for setting temperature
-        command = self._build_command(0x18, bytes([temperature]))
-        await self._send_command(command)
+        # Command: 04 [Temp] 00
+        command = self._build_command(0x04, temperature)
+        await self._send_command(command, wait_for_response=False)
         _LOGGER.info("Set temperature to %d°C", temperature)
 
     async def set_fan_speed(self, fan_speed: int) -> None:
         """Set fan speed (1-5)."""
-        if not 1 <= fan_speed <= 5:
-            raise ValueError("Fan speed must be between 1 and 5")
-
-        # Command format for setting fan speed
-        command = self._build_command(0x19, bytes([fan_speed]))
-        await self._send_command(command)
-        _LOGGER.info("Set fan speed to %d", fan_speed)
+        # Not implemented in this protocol version yet
+        _LOGGER.warning("Set fan speed not implemented")

@@ -17,22 +17,27 @@ SERVICE_UUID: Final = "0000ffe0-0000-1000-8000-00805f9b34fb"
 WRITE_CHAR_UUID: Final = "0000ffe1-0000-1000-8000-00805f9b34fb"
 NOTIFY_CHAR_UUID: Final = "0000ffe1-0000-1000-8000-00805f9b34fb"  # Same as write
 
-# Command bytes (these are typical for air heater BLE devices)
-# Note: These may need to be reverse-engineered from the actual app
-CMD_PREFIX: Final = bytes([0x76])
-CMD_SUFFIX: Final = bytes([0x00])
+# Command bytes
+# Protocol: AA 55 [PW_1] [PW_2] [CMD] [DATA1] [DATA2] [CS]
+# Password is fixed "1234" -> 0x0C 0x22
+PASSWORD_BYTES: Final = bytes([0x0C, 0x22])
 
-# Commands
-CMD_POWER_ON: Final = bytes([0x76, 0x16, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x8E])
-CMD_POWER_OFF: Final = bytes([0x76, 0x16, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8D])
-CMD_GET_STATUS: Final = bytes([0x76, 0x17, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8E])
+# Base Commands (Before Checksum)
+# Get Status: AA 55 0C 22 01 00 00 2F
+CMD_GET_STATUS: Final = bytes([0xAA, 0x55, 0x0C, 0x22, 0x01, 0x00, 0x00, 0x2F])
+
+# Turn On: AA 55 0C 22 03 01 00 [CS]
+CMD_TURN_ON_BASE: Final = bytes([0xAA, 0x55, 0x0C, 0x22, 0x03, 0x01, 0x00])
+
+# Turn Off: AA 55 0C 22 03 00 00 [CS]
+CMD_TURN_OFF_BASE: Final = bytes([0xAA, 0x55, 0x0C, 0x22, 0x03, 0x00, 0x00])
 
 # Temperature range
 MIN_TEMP: Final = 8
 MAX_TEMP: Final = 36
 TEMP_STEP: Final = 1
 
-# Fan speeds
+# Fan speeds (Not directly controllable in this protocol, usually auto)
 FAN_SPEEDS: Final = {
     "1": 1,
     "2": 2,
@@ -42,4 +47,4 @@ FAN_SPEEDS: Final = {
 }
 
 # Update interval
-UPDATE_INTERVAL: Final = 30  # seconds
+UPDATE_INTERVAL: Final = 10  # Faster polling for active status
