@@ -136,6 +136,11 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
                 await self.async_request_refresh()
             except Exception as err:
                 _LOGGER.error("Error setting power state: %s", err)
+                # Ensure we disconnect to reset state for next attempt
+                try:
+                    await self.client.disconnect()
+                except:
+                    pass
                 raise
 
     async def async_set_temperature(self, temperature: int) -> None:
@@ -151,6 +156,10 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
                 await self.async_request_refresh()
             except Exception as err:
                 _LOGGER.error("Error setting temperature: %s", err)
+                try:
+                    await self.client.disconnect()
+                except:
+                    pass
                 raise
 
     async def async_set_fan_speed(self, fan_speed: int) -> None:
@@ -166,4 +175,8 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
                 await self.async_request_refresh()
             except Exception as err:
                 _LOGGER.error("Error setting fan speed: %s", err)
+                try:
+                    await self.client.disconnect()
+                except:
+                    pass
                 raise

@@ -216,7 +216,7 @@ class ParkingHeaterClient:
                 await asyncio.sleep(0.1)
             else:
                 _LOGGER.warning("Failed to get valid status packet after retries")
-                return self._get_default_status()
+                raise BleakError("Failed to get valid status packet")
 
             # Parse Decrypted Data
             run_state = response[3]
@@ -252,7 +252,7 @@ class ParkingHeaterClient:
             return status
         except Exception as err:
             _LOGGER.error("Error getting status: %s", err)
-            return self._get_default_status()
+            raise
 
     def _get_default_status(self) -> dict[str, Any]:
         """Return default status when device is unreachable."""
