@@ -25,7 +25,7 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=UPDATE_INTERVAL),
+            update_interval=UPDATE_INTERVAL,
         )
         self.entry = entry
         self.mac_address = entry.data[CONF_MAC_ADDRESS]
