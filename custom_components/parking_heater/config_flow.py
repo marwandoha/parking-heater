@@ -60,16 +60,39 @@ class ParkingHeaterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not ok:
                 _LOGGER.warning("Connection test failed: %s", reason)
                 errors["base"] = "connect_failed"
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=vol.Schema(
-                        {
-                            vol.Required(CONF_MAC_ADDRESS): str,
-                            vol.Optional(CONF_DEVICE_NAME, default=device_name): str,
-                        }
-                    ),
-                    errors=errors,
-                )
+                
+                # Re-scan to show the list again
+                discovered_devices = await async_ble_scan(timeout=5.0)
+                device_options = {}
+                if discovered_devices:
+                    for mac, info in discovered_devices.items():
+                        name = info.get("name") if isinstance(info, dict) else getattr(info, "name", None)
+                        display = f"{name or 'Unknown'} ({mac})"
+                        device_options[mac] = display
+                
+                # If we have devices, show dropdown. If not, show manual entry.
+                if device_options:
+                    return self.async_show_form(
+                        step_id="user",
+                        data_schema=vol.Schema(
+                            {
+                                vol.Required(CONF_MAC_ADDRESS, default=mac_address): vol.In(device_options),
+                                vol.Optional(CONF_DEVICE_NAME, default=device_name): str,
+                            }
+                        ),
+                        errors=errors,
+                    )
+                else:
+                    return self.async_show_form(
+                        step_id="user",
+                        data_schema=vol.Schema(
+                            {
+                                vol.Required(CONF_MAC_ADDRESS, default=mac_address): str,
+                                vol.Optional(CONF_DEVICE_NAME, default=device_name): str,
+                            }
+                        ),
+                        errors=errors,
+                    )
 
             return self.async_create_entry(
                 title=device_name,
