@@ -75,7 +75,12 @@ class ParkingHeaterClient:
         if self._client is not None:
             try:
                 if self._client.is_connected:
-                    await self._client.stop_notify(NOTIFY_CHAR_UUID)
+                    try:
+                        # Try to stop notifications, but don't block forever
+                        await asyncio.wait_for(self._client.stop_notify(NOTIFY_CHAR_UUID), timeout=2.0)
+                    except Exception as e:
+                        _LOGGER.warning("Failed to stop notifications during disconnect: %s", e)
+                    
                     await self._client.disconnect()
             except Exception as err:
                 _LOGGER.error("Error disconnecting: %s", err)
