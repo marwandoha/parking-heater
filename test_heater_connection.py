@@ -245,6 +245,39 @@ class HeaterCommander:
         self.parse_notification(data)
         self.notification_queue.put_nowait(data)
 
+    async def turn_on(self):
+        """Sends the Turn On command (0x03, 0x01)."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected.")
+            return
+
+        _LOGGER.info("Sending Turn ON command...")
+        # Structure: AA 55 0C 22 03 01 00 [CS]
+        # 0C 22 = "1234" (Fixed Password)
+        # 03 = Power Command
+        # 01 = ON
+        cmd = bytearray([0xAA, 0x55, 0x0C, 0x22, 0x03, 0x01, 0x00, 0x00])
+        cmd[7] = sum(cmd[2:7]) & 0xFF
+        
+        await self.client.write_gatt_char(self.write_uuid, cmd)
+        _LOGGER.info(f"Sent: {cmd.hex()}")
+
+    async def turn_off(self):
+        """Sends the Turn Off command (0x03, 0x00)."""
+        if not self.client or not self.client.is_connected:
+            _LOGGER.error("Not connected.")
+            return
+
+        _LOGGER.info("Sending Turn OFF command...")
+        # Structure: AA 55 0C 22 03 00 00 [CS]
+        # 03 = Power Command
+        # 00 = OFF
+        cmd = bytearray([0xAA, 0x55, 0x0C, 0x22, 0x03, 0x00, 0x00, 0x00])
+        cmd[7] = sum(cmd[2:7]) & 0xFF
+        
+        await self.client.write_gatt_char(self.write_uuid, cmd)
+        _LOGGER.info(f"Sent: {cmd.hex()}")
+
     async def connect(self):
         """Connect to the heater."""
         if self.client and self.client.is_connected:
@@ -513,7 +546,7 @@ class HeaterCommander:
             auth_status = "Authenticated" if self.is_authenticated else "Not Authenticated"
             protocol = "OLD (FFF0)" if self.use_old_protocol else "NEW (FFE0)"
             print(f"Status: {status} | {auth_status} | Protocol: {protocol}")
-            print("1. Connect | 2. Authenticate | 3. Send Command | 4. Disconnect | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Force Turn On (Bypass Auth) | 9. Monitor Status (Continuous) | 10. Switch Protocol | 11. List Services | 12. Test Characteristics | 13. Send Raw Command | 14. Brute Force Password")
+            print("1. Connect | 2. Authenticate | 3. Turn ON | 4. Turn OFF | 5. Scan Devices | 6. Exit | 7. Set Password Manually | 8. Monitor Status (Continuous) | 9. Switch Protocol | 10. List Services | 11. Test Characteristics | 12. Send Raw Command | 13. Brute Force Password")
             
             choice = await asyncio.get_event_loop().run_in_executor(None, input, "Enter your choice: ")
             
@@ -555,43 +588,35 @@ class HeaterCommander:
                 elif cmd_choice == '5':
                     # Try Command 2 (Hypothesis: maybe this is status?)
                     cmd = build_command(2, 0, passkey=PASSWORD)
-                    name = "Command 2 (Get Status?)"
-                elif cmd_choice == '6':
-                    # Try Mode 136 (0x88)
-                    cmd = build_command(1, 0, mode=0x88, passkey=PASSWORD)
-                    name = "Get Status (Mode 88)"
-                
-                if cmd:
-                    # For Power On, we might not expect a response if it's just a write
-                    # But for Get Status, we definitely want to see what comes back
-                    expect_resp = False if name == "Power On" else True
-                    await self.send_command(cmd, name, expect_response=expect_resp, bypass_auth=bypass)
+                await self.turn_on()
             elif choice == '4':
-                await self.disconnect()
+                await self.turn_off()
             elif choice == '5':
                 await self.scan_devices()
             elif choice == '6':
-                if self.client and self.client.is_connected:
-                    await self.disconnect()
+                print("Exiting...")
+                if self.client:
+                    await self.client.disconnect()
                 break
             elif choice == '7':
-                await self.set_manual_password()
+                new_pass = await asyncio.get_event_loop().run_in_executor(None, input, "Enter new password (4 digits): ")
+                if len(new_pass) == 4 and new_pass.isdigit():
+                    global PASSWORD
+                    PASSWORD = new_pass
+                    _LOGGER.info(f"Password set to {PASSWORD}")
+                else:
+                    _LOGGER.warning("Invalid password format.")
             elif choice == '8':
-                # Force Turn On using current PASSWORD (default 1234 if not set)
-                _LOGGER.info(f"Forcing Turn On with passkey '{PASSWORD}'...")
-                cmd = build_command(3, 1, passkey=PASSWORD)
-                await self.send_command(cmd, "Power On (Forced)", expect_response=False, bypass_auth=True)
-            elif choice == '9':
                 await self.monitor_status()
-            elif choice == '10':
+            elif choice == '9':
                 self.toggle_protocol()
-            elif choice == '11':
+            elif choice == '10':
                 await self.list_services()
-            elif choice == '12':
+            elif choice == '11':
                 await self.test_characteristics()
-            elif choice == '13':
+            elif choice == '12':
                 await self.send_raw_command()
-            elif choice == '14':
+            elif choice == '13':
                 await self.brute_force_password()
             else:
                 _LOGGER.warning("Invalid choice.")
