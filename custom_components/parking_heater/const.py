@@ -60,4 +60,4 @@ FAN_SPEEDS: Final = {
 }
 
 # Update interval
-UPDATE_INTERVAL: Final = 10  # Faster polling for active status
+UPDATE_INTERVAL: Final = 2  # Fast polling for active status

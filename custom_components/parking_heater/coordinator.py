@@ -30,7 +30,9 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.mac_address = entry.data[CONF_MAC_ADDRESS]
         self.client = ParkingHeaterClient(self.mac_address, hass)
+        self.client = ParkingHeaterClient(self.mac_address, hass)
         self._lock = asyncio.Lock()
+        self._desired_connection_status = True # Default to auto-connect
 
     @property
     def device_info(self) -> dict[str, Any]:
@@ -45,6 +47,7 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
 
     async def async_connect(self) -> None:
         """Connect to the device."""
+        self._desired_connection_status = True
         try:
             await self.client.connect()
             _LOGGER.info("Successfully connected to parking heater at %s", self.mac_address)
@@ -54,11 +57,18 @@ class ParkingHeaterCoordinator(DataUpdateCoordinator):
 
     async def async_disconnect(self) -> None:
         """Disconnect from the device."""
+        self._desired_connection_status = False
         await self.client.disconnect()
         _LOGGER.info("Disconnected from parking heater at %s", self.mac_address)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from the device."""
+        # If manual disconnect was requested, don't poll
+        if not self._desired_connection_status:
+            if self.client.is_connected:
+                await self.client.disconnect()
+            return self.data or {}
+
         async with self._lock:
             try:
                 if not self.client.is_connected:

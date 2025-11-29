@@ -191,10 +191,27 @@ class ParkingHeaterClient:
         """Get current status from the heater."""
         try:
             # Active Polling: Send CMD_GET_STATUS
-            response = await self._send_command(CMD_GET_STATUS)
+            # We might receive other packets (like command responses), so we retry a few times
+            # until we get a status packet (Byte 2 == 0x01)
             
-            if not response or len(response) < 13:
-                _LOGGER.warning("Invalid response received")
+            max_retries = 3
+            for attempt in range(max_retries):
+                response = await self._send_command(CMD_GET_STATUS)
+                
+                if not response or len(response) < 13:
+                    _LOGGER.warning("Invalid response received")
+                    continue
+                
+                # Check if it's a status packet (0x01)
+                # Response format: AA 55 [CMD] ...
+                # CMD for status response is 0x01
+                if response[2] == 0x01:
+                    break
+                
+                _LOGGER.debug("Received non-status packet (cmd=%02x), retrying...", response[2])
+                await asyncio.sleep(0.1)
+            else:
+                _LOGGER.warning("Failed to get valid status packet after retries")
                 return self._get_default_status()
 
             # Parse Decrypted Data
