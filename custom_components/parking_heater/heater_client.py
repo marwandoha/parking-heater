@@ -283,9 +283,14 @@ class ParkingHeaterClient:
                 raise BleakError("Failed to get valid status packet")
 
             # Parse Decrypted Data
+            _LOGGER.info("Decrypted Status Packet: %s", response.hex())
+            
             run_state = response[3]
-            # Byte 8: Run Mode (1=Manual/Level, 2=Auto/Temp) - Assumption based on protocol
+            # Byte 8: Run Mode (1=Manual/Level, 2=Auto/Temp)
             # Byte 9: Target Value (Level 1-10 or Temp 8-36)
+            
+            if len(response) > 9:
+                _LOGGER.info("Byte 8 (Mode?): %d, Byte 9 (Value?): %d, Byte 10: %d", response[8], response[9], response[10] if len(response) > 10 else -1)
             
             target_value = response[9] if len(response) > 9 else 1
             
