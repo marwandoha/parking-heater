@@ -32,10 +32,23 @@ CMD_TURN_ON_BASE: Final = bytes([0xAA, 0x55, 0x0C, 0x22, 0x03, 0x01, 0x00])
 # Turn Off: AA 55 0C 22 03 00 00 [CS]
 CMD_TURN_OFF_BASE: Final = bytes([0xAA, 0x55, 0x0C, 0x22, 0x03, 0x00, 0x00])
 
+# Set Mode: AA 55 0C 22 02 [Mode] 00 [CS]
+# Mode 1 = Manual (Level Control), Mode 2 = Auto (Temp Control)
+CMD_SET_MODE_BASE: Final = bytes([0xAA, 0x55, 0x0C, 0x22, 0x02])
+
+# Set Value: AA 55 0C 22 04 [Value] 00 [CS]
+# Used for both Level (1-10) and Temp (8-36) depending on Mode
+CMD_SET_VALUE_BASE: Final = bytes([0xAA, 0x55, 0x0C, 0x22, 0x04])
+
 # Temperature range
 MIN_TEMP: Final = 8
 MAX_TEMP: Final = 36
 TEMP_STEP: Final = 1
+
+# Level range
+MIN_LEVEL: Final = 1
+MAX_LEVEL: Final = 10
+LEVEL_STEP: Final = 1
 
 # Fan speeds (Not directly controllable in this protocol, usually auto)
 FAN_SPEEDS: Final = {
