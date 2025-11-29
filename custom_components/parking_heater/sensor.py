@@ -26,8 +26,52 @@ async def async_setup_entry(
     sensors = [
         ParkingHeaterErrorSensor(coordinator),
         ParkingHeaterChamberTempSensor(coordinator),
+        ParkingHeaterRunStateSensor(coordinator),
     ]
     async_add_entities(sensors)
+
+
+class ParkingHeaterErrorSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):
+    """Represents the error code sensor for the Parking Heater."""
+    # ... (existing code) ...
+
+
+class ParkingHeaterRunStateSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):
+    """Represents the run state of the heater."""
+
+    def __init__(self, coordinator: ParkingHeaterCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._attr_name = f"{coordinator.entry.title} State"
+        self._attr_unique_id = f"{coordinator.mac_address}_run_state"
+        self._attr_icon = "mdi:fire-alert"
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return device info."""
+        return self.coordinator.device_info
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the state of the sensor."""
+        if self.coordinator.data:
+            state_code = self.coordinator.data.get("run_state")
+            # Map state code to text
+            # 0=Off, 1=On, 2=Ignition, 3=Heating, 4=Shutdown, 5=Standby
+            return {
+                0: "Off",
+                1: "On (Startup)",
+                2: "Ignition",
+                3: "Heating",
+                4: "Shutdown/Cooling",
+                5: "Standby"
+            }.get(state_code, f"Unknown ({state_code})")
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.client.is_connected and self.coordinator.data is not None
 
 
 class ParkingHeaterErrorSensor(CoordinatorEntity[ParkingHeaterCoordinator], SensorEntity):

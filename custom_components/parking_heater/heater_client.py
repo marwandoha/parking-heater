@@ -219,6 +219,7 @@ class ParkingHeaterClient:
             
             status = {
                 "is_on": is_on,
+                "run_state": run_state,
                 "target_temperature": MIN_TEMP, # TODO: Parse set temp from byte 9
                 "current_temperature": case_temp,
                 "chamber_temperature": chamber_temp,
