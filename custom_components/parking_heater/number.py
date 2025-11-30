@@ -49,6 +49,8 @@ class ParkingHeaterLevelNumber(CoordinatorEntity[ParkingHeaterCoordinator], Numb
         """Return device info."""
         return self.coordinator.device_info
 
+    @property
+    def native_value(self) -> float | None:
         """Return the current value."""
         if self.coordinator.data:
             val = self.coordinator.data.get("target_level", 1)

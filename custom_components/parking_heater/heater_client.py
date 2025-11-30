@@ -30,7 +30,7 @@ class ParkingHeaterClient:
         """Initialize the client."""
         self.mac_address = mac_address
         self.hass = hass
-        _LOGGER.info("Initializing Parking Heater Client v1.0.2")
+        _LOGGER.info("Initializing Parking Heater Client v1.0.3")
         self._client: BleakClient | None = None
         self._notification_data: bytearray = bytearray()
         self._notification_event = asyncio.Event()
